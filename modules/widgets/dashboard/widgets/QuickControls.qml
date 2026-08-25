@@ -10,7 +10,11 @@ StyledRect {
     id: root
     variant: "pane"
     Layout.alignment: Qt.AlignHCenter
-    implicitWidth: internalBgRect.implicitWidth + 8
+    // Ancho fijo para 5 botones (5*48 + 4*4 + 16 padding) = 272. Evita colapso cuando wifi/bt no disponibles.
+    readonly property int fixedWidthForFiveButtons: 272
+    implicitWidth: fixedWidthForFiveButtons
+    Layout.preferredWidth: fixedWidthForFiveButtons
+    Layout.minimumWidth: fixedWidthForFiveButtons
     implicitHeight: columnLayout.implicitHeight + 8
     radius: Styling.radius(4)
     
@@ -63,9 +67,19 @@ StyledRect {
                 spacing: 4
 
                 ControlButton {
-                    visible: root.wifiAvailable
                     Layout.preferredWidth: 48
+                    Layout.minimumWidth: 48
                     Layout.preferredHeight: 48
+                    Layout.minimumHeight: 48
+                    // Mantener espacio en layout aunque no disponible: opacity en vez de visible colapso
+                    opacity: root.wifiAvailable ? 1 : 0
+                    enabled: root.wifiAvailable
+                    visible: true
+
+                    Behavior on opacity {
+                        enabled: Config.animDuration > 0
+                        NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutCubic }
+                    }
                     iconName: {
                         if (!NetworkService || !NetworkService.wifiEnabled)
                             return Icons.wifiOff;
@@ -90,9 +104,18 @@ StyledRect {
                 }
 
                 ControlButton {
-                    visible: root.bluetoothAvailable
                     Layout.preferredWidth: 48
+                    Layout.minimumWidth: 48
                     Layout.preferredHeight: 48
+                    Layout.minimumHeight: 48
+                    opacity: root.bluetoothAvailable ? 1 : 0
+                    enabled: root.bluetoothAvailable
+                    visible: true
+
+                    Behavior on opacity {
+                        enabled: Config.animDuration > 0
+                        NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutCubic }
+                    }
                     iconName: {
                         if (!BluetoothService || !BluetoothService.enabled)
                             return Icons.bluetoothOff;

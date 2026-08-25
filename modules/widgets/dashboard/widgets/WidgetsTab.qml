@@ -28,10 +28,12 @@ Rectangle {
             Layout.fillHeight: true
         }
 
-        // Widgets column
+        // Widgets column — ancho fijo independiente de botones visibles (evita colapso calendario)
         ClippingRectangle {
             id: widgetsContainer
             Layout.preferredWidth: controlButtonsContainer.implicitWidth
+            Layout.minimumWidth: controlButtonsContainer.implicitWidth
+            Layout.maximumWidth: controlButtonsContainer.implicitWidth
             Layout.fillHeight: true
             radius: Styling.radius(4)
             color: "transparent"
@@ -51,9 +53,12 @@ Rectangle {
                     width: parent.width
                     spacing: 8
 
-                    // Control buttons - 5 buttons wrapped in StyledRect pane > internalbg
+                    // Control buttons - 5 buttons wrapped in StyledRect pane > internalbg (ancho fijo, no colapsa)
                     QuickControls {
                         id: controlButtonsContainer
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: implicitWidth
+                        Layout.minimumWidth: implicitWidth
                     }
 
                     Calendar {

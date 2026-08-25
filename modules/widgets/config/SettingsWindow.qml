@@ -48,14 +48,19 @@ FloatingWindow {
         } else {
             console.warn("SettingsWindow resolveTargetScreen: settingsTargetScreenName vacío, revisar GlobalShortcuts toggleSettings propagation");
         }
-        // Solo fallback a focused/0 si no hay explicit válido — no ocultar bug de screenName vacío
-        if (!explicit) {
-            const focusedName = AxctlService.focusedMonitor?.name || "";
-            if (focusedName) {
-                const fs = screenByName(focusedName);
-                if (fs) return fs;
+        // Fallback robusto: si explicit falló o vacío, intentar focused/0 para no bloquear apertura
+        // Se mantiene warn arriba para no ocultar bug de propagation, pero garantiza apertura
+        const focusedName = AxctlService.focusedMonitor?.name || "";
+        if (focusedName) {
+            const fs = screenByName(focusedName);
+            if (fs) {
+                if (explicit) console.warn("SettingsWindow resolveTargetScreen: fallback a focused", focusedName, "tras fail explicit", explicit);
+                return fs;
             }
-            if (Quickshell.screens.length > 0) return Quickshell.screens[0];
+        }
+        if (Quickshell.screens.length > 0) {
+            if (explicit) console.warn("SettingsWindow resolveTargetScreen: fallback a screens[0]", Quickshell.screens[0].name, "tras fail explicit", explicit);
+            return Quickshell.screens[0];
         }
         return null;
     }
@@ -156,14 +161,22 @@ FloatingWindow {
     }
 
     Component.onCompleted: {
-        // Si el Loader nos crea ya con visible=true (race), asegurar screen asignado antes de mapear
-        if (GlobalStates.settingsWindowVisible) preparePlacement();
+        // Loader se activa con GlobalStates.settingsWindowVisible true: el signal ya se emitió
+        // antes de que este componente existiera, por lo que Connections no lo recibe.
+        // Asegurar screen ANTES de visible para evitar flash en monitor 1 (per-screen N dinámico).
+        if (GlobalStates.settingsWindowVisible) {
+            preparePlacement();
+            // Qt.callLater garantiza que screen ya está asignado antes de que el compositor mapee
+            Qt.callLater(() => {
+                if (GlobalStates.settingsWindowVisible) settingsWindow.visible = true;
+            });
+        }
     }
 
     // Close on visibility change from outside
     onVisibleChanged: {
         if (visible) {
-            // screen ya asignado en onSettingsWindowVisibleChanged antes de visible=true; re-validar por si hotplug cambió
+            // Re-validar por si hotplug cambió entre preparePlacement y mapeo (race)
             const cur = resolveTargetScreen();
             if (cur && settingsWindow.screen !== cur) {
                 console.log("SettingsWindow onVisibleChanged: corrigiendo screen a", cur.name);
@@ -177,20 +190,22 @@ FloatingWindow {
     }
 
     // Sync visibilidad desde GlobalStates — asigna screen ANTES de visible para N dinámico
+    // Incluye hotplug: re-resolver si cambia targetScreenName mientras está visible
     Connections {
         target: GlobalStates
         function onSettingsWindowVisibleChanged() {
             if (GlobalStates.settingsWindowVisible) {
                 // 1. Asignar screen antes de hacer visible (evita flash en monitor 1)
                 settingsWindow.preparePlacement();
+                // 2. Recién después hacer visible en siguiente tick (screen ya asignado)
+                Qt.callLater(() => {
+                    settingsWindow.visible = GlobalStates.settingsWindowVisible;
+                });
+            } else {
+                // Cierre inmediato
+                settingsWindow.visible = false;
             }
-            // 2. Recién después hacer visible
-            settingsWindow.visible = GlobalStates.settingsWindowVisible;
         }
-    }
-    // Hotplug N dinámico: re-resolver si cambia targetScreenName mientras está visible
-    Connections {
-        target: GlobalStates
         function onSettingsTargetScreenNameChanged() {
             if (settingsWindow.visible) {
                 const cur = settingsWindow.resolveTargetScreen();

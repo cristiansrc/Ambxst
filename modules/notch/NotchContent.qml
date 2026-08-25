@@ -181,15 +181,9 @@ Item {
         DashboardView { visible: false }
     }
 
-    // Binding reactivo N-monitores: si cambia screen.name, propagar al item cargado
-    Connections {
-        target: root.screen
-        ignoreUnknownSignals: false
-        function onNameChanged() {
-            if (persistentDashboardViewLoader.item)
-                persistentDashboardViewLoader.item.screenName = root.screen.name;
-        }
-    }
+    // Binding reactivo N-monitores: propaga root.screen.name al item cargado
+    // ShellScreen no emite nameChanged; el reemplazo de monitor emite screenChanged en root.
+    // El Binding es reactivo a root.screen.name y evita dead-code / ignoreUnknownSignals / shadowing.
     Binding {
         target: persistentDashboardViewLoader.item
         when: persistentDashboardViewLoader.item !== null

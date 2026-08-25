@@ -102,7 +102,7 @@ Item {
             property string matugenScheme: "scheme-tonal-spot"
             property string activeColorPreset: ""
             property bool autoChangeEnabled: false
-            property int autoChangeInterval: 10
+            property int autoChangeInterval: 30
         }
     }
 
@@ -423,7 +423,18 @@ Item {
                                         verticalAlignment: TextInput.AlignVCenter
                                         horizontalAlignment: TextInput.AlignHCenter
                                         validator: IntValidator { bottom: 1; top: 1440 }
-                                        readonly property int configValue: wallpaperConfig.adapter.autoChangeInterval || 10
+                                        // Migración legacy: 10 (default antiguo) o vacío -> 30
+                                        readonly property int configValue: {
+                                            let v = wallpaperConfig.adapter.autoChangeInterval;
+                                            if (v === undefined || v === null || v === "")
+                                                return 30;
+                                            let n = parseInt(v);
+                                            if (isNaN(n))
+                                                return 30;
+                                            if (n === 10)
+                                                return 30;
+                                            return Math.max(1, Math.min(1440, n));
+                                        }
                                         onConfigValueChanged: {
                                             if (!activeFocus && text !== configValue.toString())
                                                 text = configValue.toString();

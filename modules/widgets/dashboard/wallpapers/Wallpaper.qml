@@ -651,7 +651,7 @@ PanelWindow {
     // ── F2: Auto-cambio cada N minutos ──────────────────────────────
     Timer {
         id: autoChangeTimer
-        interval: Math.max(1, Math.min(1440, wallpaperConfig.adapter.autoChangeInterval || 10)) * 60 * 1000
+        interval: Math.max(1, Math.min(1440, wallpaperConfig.adapter.autoChangeInterval === 10 ? 30 : (wallpaperConfig.adapter.autoChangeInterval || 30))) * 60 * 1000
         repeat: true
         running: wallpaper._wallpaperDirInitialized && wallpaper.initialLoadCompleted && wallpaperConfig.adapter.autoChangeEnabled && wallpaper.wallpaperPaths.length > 1
         triggeredOnStart: false
@@ -733,15 +733,17 @@ PanelWindow {
             if (!wallpaperConfig.adapter.matugenScheme) {
                 wallpaperConfig.adapter.matugenScheme = "scheme-tonal-spot";
             }
-            // F2: defaults y clamp para auto-cambio
-            if (wallpaperConfig.adapter.autoChangeInterval === undefined || wallpaperConfig.adapter.autoChangeInterval === null) {
-                wallpaperConfig.adapter.autoChangeInterval = 10;
+            // F2: defaults y clamp para auto-cambio (default migrado 10 -> 30)
+            if (wallpaperConfig.adapter.autoChangeInterval === undefined || wallpaperConfig.adapter.autoChangeInterval === null || wallpaperConfig.adapter.autoChangeInterval === "") {
+                wallpaperConfig.adapter.autoChangeInterval = 30;
             } else {
                 let v = parseInt(wallpaperConfig.adapter.autoChangeInterval);
                 if (isNaN(v) || v < 1)
                     v = 1;
                 else if (v > 1440)
                     v = 1440;
+                else if (v === 10)
+                    v = 30; // migración legacy: default antiguo 10 -> 30
                 if (v !== wallpaperConfig.adapter.autoChangeInterval)
                     wallpaperConfig.adapter.autoChangeInterval = v;
             }
@@ -764,7 +766,7 @@ PanelWindow {
             property bool tintEnabled: false
             property var perScreenWallpapers: ({})
             property bool autoChangeEnabled: false
-            property int autoChangeInterval: 10
+            property int autoChangeInterval: 30
 
             onActiveColorPresetChanged: {
                 if (wallpaperConfig.adapter.activeColorPreset !== wallpaper.activeColorPreset) {

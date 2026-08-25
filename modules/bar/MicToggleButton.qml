@@ -14,8 +14,8 @@ ToggleButton {
 
     buttonIcon: micMuted ? Icons.micSlash : Icons.mic
     tooltipText: micMuted ? "Unmute microphone" : "Mute microphone"
-    iconTint: !micMuted
-    iconFullTint: !micMuted
+    iconTint: micMuted
+    iconFullTint: micMuted
 
     onToggle: function () {
         Audio.toggleMicMute();

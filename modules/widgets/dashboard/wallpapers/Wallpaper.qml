@@ -648,6 +648,38 @@ PanelWindow {
         }
     }
 
+    // ── F2: Auto-cambio cada N minutos ──────────────────────────────
+    Timer {
+        id: autoChangeTimer
+        interval: Math.max(1, Math.min(1440, wallpaperConfig.adapter.autoChangeInterval || 10)) * 60 * 1000
+        repeat: true
+        running: wallpaper._wallpaperDirInitialized && wallpaper.initialLoadCompleted && wallpaperConfig.adapter.autoChangeEnabled && wallpaper.wallpaperPaths.length > 1
+        triggeredOnStart: false
+        onTriggered: {
+            console.log("Auto-change timer triggered (interval", interval / 60000, "min) - rotating wallpaper");
+            nextWallpaper();
+        }
+        onRunningChanged: console.log("Auto-change timer running:", running, "interval:", interval / 60000, "min enabled:", wallpaperConfig.adapter.autoChangeEnabled, "count:", wallpaper.wallpaperPaths.length)
+    }
+
+    Connections {
+        target: wallpaperConfig.adapter
+        function onAutoChangeIntervalChanged() {
+            if (autoChangeTimer.running)
+                autoChangeTimer.restart();
+        }
+        function onAutoChangeEnabledChanged() {
+            console.log("AutoChange enabled changed to", wallpaperConfig.adapter.autoChangeEnabled);
+        }
+    }
+
+    onWallpaperPathsChanged: {
+        if (autoChangeTimer.running && wallpaperPaths.length <= 1)
+            autoChangeTimer.stop();
+        else if (!autoChangeTimer.running && wallpaper._wallpaperDirInitialized && initialLoadCompleted && wallpaperConfig.adapter.autoChangeEnabled && wallpaperPaths.length > 1)
+            autoChangeTimer.restart();
+    }
+
     Component.onCompleted: {
         // Only the first Wallpaper instance should manage scanning
         // Other instances (for other screens) share the same data via GlobalStates
@@ -701,6 +733,21 @@ PanelWindow {
             if (!wallpaperConfig.adapter.matugenScheme) {
                 wallpaperConfig.adapter.matugenScheme = "scheme-tonal-spot";
             }
+            // F2: defaults y clamp para auto-cambio
+            if (wallpaperConfig.adapter.autoChangeInterval === undefined || wallpaperConfig.adapter.autoChangeInterval === null) {
+                wallpaperConfig.adapter.autoChangeInterval = 10;
+            } else {
+                let v = parseInt(wallpaperConfig.adapter.autoChangeInterval);
+                if (isNaN(v) || v < 1)
+                    v = 1;
+                else if (v > 1440)
+                    v = 1440;
+                if (v !== wallpaperConfig.adapter.autoChangeInterval)
+                    wallpaperConfig.adapter.autoChangeInterval = v;
+            }
+            if (wallpaperConfig.adapter.autoChangeEnabled === undefined || wallpaperConfig.adapter.autoChangeEnabled === null) {
+                wallpaperConfig.adapter.autoChangeEnabled = false;
+            }
             // Update the currentMatugenScheme property to trigger UI updates
             currentMatugenScheme = Qt.binding(function () {
                 return wallpaperConfig.adapter.matugenScheme;
@@ -716,6 +763,8 @@ PanelWindow {
             property string activeColorPreset: ""
             property bool tintEnabled: false
             property var perScreenWallpapers: ({})
+            property bool autoChangeEnabled: false
+            property int autoChangeInterval: 10
 
             onActiveColorPresetChanged: {
                 if (wallpaperConfig.adapter.activeColorPreset !== wallpaper.activeColorPreset) {

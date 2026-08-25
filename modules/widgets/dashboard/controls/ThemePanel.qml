@@ -101,6 +101,8 @@ Item {
             property string wallPath: ""
             property string matugenScheme: "scheme-tonal-spot"
             property string activeColorPreset: ""
+            property bool autoChangeEnabled: false
+            property int autoChangeInterval: 10
         }
     }
 
@@ -330,6 +332,124 @@ Item {
                                             }
                                         }
                                     }
+                                }
+                            }
+
+                            // ── F2: Auto-cambio de wallpaper ────────────────────────
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Text {
+                                    text: "Cambiar cada X tiempo"
+                                    font.family: Config.theme.font
+                                    font.pixelSize: Styling.fontSize(0)
+                                    color: Colors.overBackground
+                                    Layout.fillWidth: true
+                                }
+
+                                Switch {
+                                    id: autoChangeSwitch
+                                    checked: wallpaperConfig.adapter.autoChangeEnabled
+                                    readonly property bool configValue: wallpaperConfig.adapter.autoChangeEnabled
+                                    onConfigValueChanged: {
+                                        if (checked !== configValue)
+                                            checked = configValue;
+                                    }
+                                    onCheckedChanged: {
+                                        if (checked !== wallpaperConfig.adapter.autoChangeEnabled) {
+                                            wallpaperConfig.adapter.autoChangeEnabled = checked;
+                                            wallpaperConfig.writeAdapter();
+                                        }
+                                    }
+                                    indicator: Rectangle {
+                                        implicitWidth: 40
+                                        implicitHeight: 20
+                                        x: autoChangeSwitch.leftPadding
+                                        y: parent.height / 2 - height / 2
+                                        radius: height / 2
+                                        color: autoChangeSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
+                                        border.color: autoChangeSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
+                                        Behavior on color {
+                                            enabled: Config.animDuration > 0
+                                            ColorAnimation { duration: Config.animDuration / 2 }
+                                        }
+                                        Rectangle {
+                                            x: autoChangeSwitch.checked ? parent.width - width - 2 : 2
+                                            y: 2
+                                            width: parent.height - 4
+                                            height: width
+                                            radius: width / 2
+                                            color: autoChangeSwitch.checked ? Colors.background : Colors.overSurfaceVariant
+                                            Behavior on x {
+                                                enabled: Config.animDuration > 0
+                                                NumberAnimation { duration: Config.animDuration / 2; easing.type: Easing.OutCubic }
+                                            }
+                                        }
+                                    }
+                                    background: null
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                enabled: wallpaperConfig.adapter.autoChangeEnabled
+                                opacity: enabled ? 1.0 : 0.5
+
+                                Text {
+                                    text: "Intervalo"
+                                    font.family: Config.theme.font
+                                    font.pixelSize: Styling.fontSize(0)
+                                    color: Colors.overBackground
+                                    Layout.fillWidth: true
+                                }
+
+                                StyledRect {
+                                    variant: "common"
+                                    Layout.preferredWidth: 80
+                                    Layout.preferredHeight: 32
+                                    radius: Styling.radius(-2)
+
+                                    TextInput {
+                                        id: intervalInput
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        font.family: Config.theme.font
+                                        font.pixelSize: Styling.fontSize(0)
+                                        color: Colors.overBackground
+                                        selectByMouse: true
+                                        clip: true
+                                        verticalAlignment: TextInput.AlignVCenter
+                                        horizontalAlignment: TextInput.AlignHCenter
+                                        validator: IntValidator { bottom: 1; top: 1440 }
+                                        readonly property int configValue: wallpaperConfig.adapter.autoChangeInterval || 10
+                                        onConfigValueChanged: {
+                                            if (!activeFocus && text !== configValue.toString())
+                                                text = configValue.toString();
+                                        }
+                                        Component.onCompleted: text = configValue.toString()
+                                        onEditingFinished: {
+                                            let v = parseInt(text);
+                                            if (!isNaN(v)) {
+                                                v = Math.max(1, Math.min(1440, v));
+                                                if (v !== wallpaperConfig.adapter.autoChangeInterval) {
+                                                    wallpaperConfig.adapter.autoChangeInterval = v;
+                                                    wallpaperConfig.writeAdapter();
+                                                }
+                                                text = v.toString();
+                                            } else {
+                                                text = configValue.toString();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: "min"
+                                    font.family: Config.theme.font
+                                    font.pixelSize: Styling.fontSize(0)
+                                    color: Colors.overSurfaceVariant
                                 }
                             }
 

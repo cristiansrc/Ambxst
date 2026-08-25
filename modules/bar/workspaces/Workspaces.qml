@@ -20,18 +20,42 @@ Item {
 
     // perMonitor dinámico: requiere flag + al menos 2 pantallas físicas (Quickshell.screens) o 2 monitores reportados por axctl
     readonly property bool perMonitorMode: (Config.workspaces.perMonitor ?? false) && Quickshell.screens.length >= 2
-    // monitorOffset dinámico basado en Quickshell.screens.length y AxctlService.monitors — no hardcoded
+    // monitorOffset determinístico ordenado por x/id (no por findIndex desordenado de Quickshell.screens/Axctl)
+    // N dinámico: 3 monitores x0,x1920,x4480 => offsets 0,1,2 => IDs 1-10,11-20,21-30 cuando perMonitorCount=10
     readonly property int monitorOffset: {
         if (!perMonitorMode) return 0;
         const mName = monitor && monitor.name ? monitor.name : "";
-        // Preferir AxctlService.monitors (fuente de verdad del compositor) — dinámico al número de monitores conectados
+        if (!mName) return 0;
+        // Preferir AxctlService.monitors ordenado determinísticamente por x luego id luego nombre
         const axMonitors = AxctlService.monitors.values || [];
-        let idx = axMonitors.findIndex(m => m && m.name === mName);
-        if (idx >= 0) return idx;
-        // Fallback a Quickshell.screens.length — mantiene consistencia si axctl aún no reporta
+        if (axMonitors.length > 0) {
+            const ordered = axMonitors.slice().sort((a, b) => {
+                const ax = (a && a.x !== undefined) ? a.x : (a && a.id !== undefined ? a.id * 10000 : 99999);
+                const bx = (b && b.x !== undefined) ? b.x : (b && b.id !== undefined ? b.id * 10000 : 99999);
+                if (ax !== bx) return ax - bx;
+                const aid = (a && a.id !== undefined) ? a.id : 999;
+                const bid = (b && b.id !== undefined) ? b.id : 999;
+                if (aid !== bid) return aid - bid;
+                return String(a ? a.name : "").localeCompare(String(b ? b.name : ""));
+            });
+            const idx = ordered.findIndex(m => m && m.name === mName);
+            if (idx >= 0) return idx;
+            // fallback sin ordenar (por si orden no resuelve)
+            const rawIdx = axMonitors.findIndex(m => m && m.name === mName);
+            if (rawIdx >= 0) return rawIdx;
+        }
+        // Fallback a Quickshell.screens ordenado por x luego nombre (determinístico)
         const screens = Quickshell.screens || [];
-        const sIdx = screens.findIndex(s => s && s.name === mName);
-        if (sIdx >= 0) return sIdx;
+        if (screens.length > 0) {
+            const orderedScreens = screens.slice().sort((a, b) => {
+                if (a && b && a.x !== undefined && b.x !== undefined && a.x !== b.x) return a.x - b.x;
+                return String(a ? a.name : "").localeCompare(String(b ? b.name : ""));
+            });
+            const sIdx = orderedScreens.findIndex(s => s && s.name === mName);
+            if (sIdx >= 0) return sIdx;
+            const rawSIdx = screens.findIndex(s => s && s.name === mName);
+            if (rawSIdx >= 0) return rawSIdx;
+        }
         return 0;
     }
     // perMonitorCount dinámico por monitor (default 5), clamp 1..20 — cada monitor muestra exactamente perMonitorShown dots
@@ -39,7 +63,16 @@ Item {
     readonly property int perMonitorShown: perMonitorMode ? Math.max(1, Math.min(20, Config.workspaces.perMonitorCount ?? 5)) : (Config.workspaces.shown ?? 10)
 
     // workspaceGroup deshabilitado en perMonitor: cada monitor tiene grupo 0 independiente, rango calculado por monitorOffset
-    readonly property int workspaceGroup: perMonitorMode ? 0 : Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / (Config.workspaces.shown ?? 10))
+    // perMonitor false => global: todos comparten 1..shown (o grupo global basado en focusedWorkspace, no per-monitor)
+    readonly property int workspaceGroup: {
+        if (perMonitorMode) return 0;
+        const shownVal = Math.max(1, Math.min(20, Config.workspaces.shown ?? 10));
+        // Preferir focusedWorkspace global para consistencia entre monitores cuando perMonitor false
+        let gid = (AxctlService.focusedWorkspace && AxctlService.focusedWorkspace.id !== undefined ? AxctlService.focusedWorkspace.id : undefined);
+        if (gid === undefined) gid = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined);
+        if (gid === undefined || gid === null) gid = 1;
+        return Math.floor((gid - 1) / shownVal);
+    }
     property var workspaceOccupied: []
     property var dynamicWorkspaceIds: []
     // effectiveWorkspaceCount dinámico: perMonitor muestra exactamente perMonitorShown (5) dots independientes por monitor (prioridad perMonitor > dynamic)
@@ -58,11 +91,11 @@ Item {
     property real workspaceIconMarginShrinked: -4
     property int workspaceIndexInGroup: {
         const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
-        if (Config.workspaces.dynamic) return dynamicWorkspaceIds.indexOf(activeId);
         if (perMonitorMode) {
             const idx = activeId - monitorOffset * perMonitorShown - 1;
             return Math.max(0, Math.min(perMonitorShown - 1, idx));
         }
+        if (Config.workspaces.dynamic) return dynamicWorkspaceIds.indexOf(activeId);
         return ((activeId - 1 || 0) % (Config.workspaces.shown ?? 10));
     }
     property var occupiedRanges: []

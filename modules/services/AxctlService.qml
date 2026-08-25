@@ -143,6 +143,9 @@ Singleton {
                 height: mon.height,
                 refreshRate: mon.refresh_rate,
                 scale: mon.scale,
+                // x/y determinísticos para ordenar monitores por posición física (evita findIndex desordenado)
+                x: mon.metadata && mon.metadata.x !== undefined ? parseInt(mon.metadata.x) || 0 : 0,
+                y: mon.metadata && mon.metadata.y !== undefined ? parseInt(mon.metadata.y) || 0 : 0,
                 activeWorkspace: { id: parseInt(mon.metadata ? mon.metadata.active_workspace : 0) || 0, name: mon.metadata ? mon.metadata.active_workspace : "" }
             }));
             root.monitors.values = mappedMonitors;

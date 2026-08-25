@@ -23,22 +23,45 @@ FloatingWindow {
 
     function screenByName(name) {
         if (!name) return null;
-
         for (let i = 0; i < Quickshell.screens.length; i++) {
             if (Quickshell.screens[i].name === name) {
                 return Quickshell.screens[i];
             }
         }
+        return null;
+    }
 
+    // Fallback dinámico N monitores: si settingsTargetScreenName vacío, intentar resolver via AxctlService -> Quickshell.screens[0]
+    function resolveTargetScreen() {
+        const explicit = (GlobalStates.settingsTargetScreenName || "").trim();
+        if (explicit) {
+            const s = screenByName(explicit);
+            if (s) return s;
+            // Si nombre no está en Quickshell.screens pero sí en AxctlService, intentar mapear
+            const mon = AxctlService.monitorFor(explicit);
+            if (mon) {
+                const mapped = screenByName(mon.name);
+                if (mapped) return mapped;
+            }
+        }
+        const focusedName = AxctlService.focusedMonitor?.name || "";
+        if (focusedName) {
+            const fs = screenByName(focusedName);
+            if (fs) return fs;
+        }
+        if (Quickshell.screens.length > 0) return Quickshell.screens[0];
         return null;
     }
 
     function preparePlacement() {
-        const targetScreen = screenByName(GlobalStates.settingsTargetScreenName || AxctlService.focusedMonitor?.name || "");
+        const targetScreen = resolveTargetScreen();
         if (targetScreen) {
+            // Asignar screen ANTES de que el compositor mapee la ventana (evita flash en monitor 1)
             settingsWindow.screen = targetScreen;
+            console.log("SettingsWindow preparePlacement target:", GlobalStates.settingsTargetScreenName, "->", targetScreen.name);
+        } else {
+            console.warn("SettingsWindow preparePlacement: no targetScreen found for", GlobalStates.settingsTargetScreenName);
         }
-
         placementTimer.attempts = 0;
         placementTimer.restart();
     }

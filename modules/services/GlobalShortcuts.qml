@@ -2,6 +2,7 @@ pragma Singleton
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import Quickshell
 import qs.modules.globals
 import qs.modules.services
 import qs.config
@@ -31,7 +32,11 @@ QtObject {
 
     function run(command) {
         console.log("IPC run command received:", command);
-        switch (command) {
+        // Soporte dinámico N monitores: "config DP-2", "dashboard-controls HDMI-A-1"
+        const parts = command.split(" ");
+        const baseCmd = parts[0];
+        const argScreen = parts.length > 1 ? parts.slice(1).join(" ").trim() : "";
+        switch (baseCmd) {
             // Launcher (Standalone Notch Module)
             case "launcher": toggleLauncher(); break;
             case "clipboard": toggleLauncherWithPrefix(1, Config.prefix.clipboard + " "); break;
@@ -47,13 +52,13 @@ QtObject {
             case "dashboard-wallpapers": toggleDashboardTab(1); break;
             case "dashboard-kanban": toggleDashboardTab(2); break;
             case "dashboard-assistant": toggleAssistant(); break;
-            case "dashboard-controls": toggleSettings(); break;
+            case "dashboard-controls": toggleSettings(argScreen); break;
 
             // System
             case "overview": toggleSimpleModule("overview"); break;
             case "powermenu": toggleSimpleModule("powermenu"); break;
             case "tools": toggleSimpleModule("tools"); break;
-            case "config": toggleSettings(); break;
+            case "config": toggleSettings(argScreen); break;
             case "screenshot": Screenshot.initialize(); GlobalStates.screenshotToolVisible = true; break;
             case "screenrecord":
                 ScreenRecorder.initialize();
@@ -91,14 +96,47 @@ QtObject {
         }
     }
 
+    // Helper dinámico N monitores: busca screen en Quickshell.screens si AxctlService no lo tiene
+    function resolveScreenByName(name) {
+        if (!name) return null;
+        for (let i = 0; i < Quickshell.screens.length; i++) {
+            if (Quickshell.screens[i].name === name) return Quickshell.screens[i];
+        }
+        return null;
+    }
+
     function toggleSettings(screenName) {
         const willOpen = !GlobalStates.settingsWindowVisible;
         if (willOpen) {
-            const targetMonitor = screenName ? AxctlService.monitorFor(screenName) : AxctlService.focusedMonitor;
+            const trimmed = (screenName || "").trim();
+            // Prioridad: AxctlService.monitorFor(trimmed) -> Quickshell.screens -> focusedMonitor
+            let targetMonitor = trimmed ? AxctlService.monitorFor(trimmed) : null;
+            let targetScreen = trimmed ? resolveScreenByName(trimmed) : null;
+
+            // Si AxctlService no conoce el monitor (race daemon), usar Quickshell screen como fallback
+            if (!targetMonitor && targetScreen) {
+                // Crear objeto compatible para workspace/focus
+                const monForScreen = AxctlService.monitorFor(targetScreen.name);
+                if (monForScreen) targetMonitor = monForScreen;
+            }
+            if (!targetMonitor) targetMonitor = AxctlService.focusedMonitor;
+            if (!targetScreen && trimmed) targetScreen = resolveScreenByName(trimmed);
+
+            // Nombre canónico: preferir Axctl monitor name, fallback a Quickshell screen name
+            const canonicalName = targetMonitor?.name || targetScreen?.name || AxctlService.focusedMonitor?.name || (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "");
+
             GlobalStates.settingsTargetWorkspaceId = targetMonitor?.activeWorkspace?.id || AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0;
-            GlobalStates.settingsTargetScreenName = targetMonitor?.name || AxctlService.focusedMonitor?.name || "";
-            if (targetMonitor && targetMonitor.id !== AxctlService.focusedMonitor?.id) {
+            GlobalStates.settingsTargetScreenName = canonicalName;
+            console.log("toggleSettings screenName:", trimmed, "-> canonical:", canonicalName, "monitor:", targetMonitor?.name, "screen:", targetScreen?.name);
+
+            if (targetMonitor && AxctlService.focusedMonitor && targetMonitor.id !== AxctlService.focusedMonitor.id) {
                 AxctlService.dispatch(`focusmonitor ${targetMonitor.id}`);
+            } else if (targetScreen && AxctlService.focusedMonitor && targetScreen.name !== AxctlService.focusedMonitor.name) {
+                // Fallback: resolver monitor id via AxctlService para el screen target
+                const fallbackMon = AxctlService.monitorFor(targetScreen.name);
+                if (fallbackMon && fallbackMon.id !== AxctlService.focusedMonitor.id) {
+                    AxctlService.dispatch(`focusmonitor ${fallbackMon.id}`);
+                }
             }
             Qt.callLater(() => Visibilities.setActiveModule(""));
         }

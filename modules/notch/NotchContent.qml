@@ -166,7 +166,35 @@ Item {
     Loader {
         id: persistentDashboardViewLoader
         active: false
-        sourceComponent: Component { DashboardView { visible: false; screenName: root.screen.name } }
+        sourceComponent: dashboardViewComponent
+        onLoaded: {
+            if (item) item.screenName = root.screen.name;
+        }
+        // Mantener screenName sincronizado dinámicamente para N monitores (hotplug / rename)
+        onActiveChanged: {
+            if (active && item) item.screenName = root.screen.name;
+        }
+    }
+
+    Component {
+        id: dashboardViewComponent
+        DashboardView { visible: false }
+    }
+
+    // Binding reactivo N-monitores: si cambia screen.name, propagar al item cargado
+    Connections {
+        target: root.screen
+        ignoreUnknownSignals: false
+        function onNameChanged() {
+            if (persistentDashboardViewLoader.item)
+                persistentDashboardViewLoader.item.screenName = root.screen.name;
+        }
+    }
+    Binding {
+        target: persistentDashboardViewLoader.item
+        when: persistentDashboardViewLoader.item !== null
+        property: "screenName"
+        value: root.screen.name
     }
 
     // Persistent power menu view

@@ -150,6 +150,7 @@ Item {
         id: toggleRowRoot
         property string label: ""
         property bool checked: false
+        property bool enabled: true
         signal toggled(bool value)
 
         // Track if we're updating from external binding
@@ -165,24 +166,45 @@ Item {
 
         Layout.fillWidth: true
         spacing: 8
+        opacity: enabled ? 1.0 : 0.5
 
         Text {
             text: toggleRowRoot.label
             font.family: Config.theme.font
             font.pixelSize: Styling.fontSize(0)
-            color: Colors.overBackground
+            color: toggleRowRoot.enabled ? Colors.overBackground : Colors.outline
             Layout.fillWidth: true
+            opacity: toggleRowRoot.enabled ? 1.0 : 0.5
         }
 
-        Switch {
-            id: toggleSwitch
-            checked: toggleRowRoot.checked
-
-            onCheckedChanged: {
-                if (!toggleRowRoot._updating && checked !== toggleRowRoot.checked) {
-                    toggleRowRoot.toggled(checked);
-                }
+        Item {
+            Layout.fillHeight: true
+            Layout.preferredWidth: toggleSwitch.implicitWidth
+            implicitWidth: toggleSwitch.implicitWidth
+            implicitHeight: toggleSwitch.implicitHeight
+            StyledToolTip {
+                tooltipText: "Requires 2+ monitors"
+                show: !toggleRowRoot.enabled && toggleRowHover.containsMouse
             }
+            MouseArea {
+                id: toggleRowHover
+                anchors.fill: parent
+                hoverEnabled: true
+                visible: !toggleRowRoot.enabled
+                acceptedButtons: Qt.NoButton
+                z: 10
+            }
+            Switch {
+                id: toggleSwitch
+                anchors.centerIn: parent
+                checked: toggleRowRoot.checked
+                enabled: toggleRowRoot.enabled
+
+                onCheckedChanged: {
+                    if (!toggleRowRoot._updating && checked !== toggleRowRoot.checked) {
+                        toggleRowRoot.toggled(checked);
+                    }
+                }
 
             indicator: Rectangle {
                 implicitWidth: 40
@@ -218,6 +240,7 @@ Item {
                 }
             }
             background: null
+            }
         }
     }
 
@@ -1202,6 +1225,19 @@ Item {
                                 if (value !== Config.workspaces.dynamic) {
                                     GlobalStates.markShellChanged();
                                     Config.workspaces.dynamic = value;
+                                }
+                            }
+                        }
+
+                        ToggleRow {
+                            label: "Per-Monitor"
+                            checked: Config.workspaces.perMonitor ?? false
+                            enabled: Quickshell.screens.length >= 2
+                            onToggled: value => {
+                                if (Quickshell.screens.length < 2) return;
+                                if (value !== Config.workspaces.perMonitor) {
+                                    GlobalStates.markShellChanged();
+                                    Config.workspaces.perMonitor = value;
                                 }
                             }
                         }

@@ -262,13 +262,34 @@ Rectangle {
         }
     ]
 
-    // Filtered sections based on search query
+    // Null-safe hardware availability (sigue patrón Battery.available)
+    readonly property bool wifiAvailable: NetworkService ? (NetworkService.wifiAvailable ?? false) : false
+    readonly property bool bluetoothAvailable: BluetoothService ? (BluetoothService.available ?? false) : false
+
+    function isSectionVisible(sectionId) {
+        if (sectionId === 0 && !wifiAvailable) return false;
+        if (sectionId === 1 && !bluetoothAvailable) return false;
+        return true;
+    }
+
+    // Filtered sections based on search query + hardware availability
     readonly property var filteredSections: {
-        if (searchQuery.length === 0)
-            return sectionModel;
+        const wifiAvail = root.wifiAvailable;
+        const btAvail = root.bluetoothAvailable;
+
+        if (searchQuery.length === 0) {
+            return sectionModel.filter(item => {
+                if (item.section === 0 && !wifiAvail) return false;
+                if (item.section === 1 && !btAvail) return false;
+                return true;
+            });
+        }
 
         const query = searchQuery.toLowerCase();
         return searchIndex.items.filter(item => {
+            // Ocultar secciones sin hardware incluso en búsqueda
+            if (item.section === 0 && !wifiAvail) return false;
+            if (item.section === 1 && !btAvail) return false;
             return fuzzyMatch(query, item.label) || (item.keywords && item.keywords.includes(query));
         }).map(item => {
             // Find section metadata
@@ -293,6 +314,25 @@ Rectangle {
                 return i;
         }
         return -1;
+    }
+
+    function handleHardwareAvailabilityChange() {
+        if (!isSectionVisible(root.currentSection)) {
+            const fallback = filteredSections.length > 0 ? filteredSections[0].section : 2;
+            root.currentSection = fallback;
+            const idx = getFilteredIndex(fallback);
+            root.selectedIndex = idx >= 0 ? idx : 0;
+        }
+    }
+
+    onWifiAvailableChanged: handleHardwareAvailabilityChange()
+    onBluetoothAvailableChanged: handleHardwareAvailabilityChange()
+
+    Component.onCompleted: {
+        // Ajuste inicial si sección actual no tiene hardware (null-safety)
+        if (!isSectionVisible(root.currentSection)) {
+            handleHardwareAvailabilityChange();
+        }
     }
 
     RowLayout {

@@ -10,6 +10,7 @@ Singleton {
     id: root
 
     property bool enabled: false
+    property bool available: false
     property bool discovering: false
     property bool connected: false
     property int connectedDevices: 0
@@ -148,6 +149,7 @@ Singleton {
 
     // Control functions
     function setEnabled(value: bool): void {
+        if (!root.available) return;
         if (SuspendManager.isSuspending) return;
         isUpdating = true;
         runAsync(["bluetoothctl", "power", value ? "on" : "off"]).then(() => {
@@ -160,10 +162,12 @@ Singleton {
     }
 
     function toggle(): void {
+        if (!root.available) return;
         setEnabled(!enabled);
     }
 
     function startDiscovery(): void {
+        if (!root.available) return;
         if (enabled && !SuspendManager.isSuspending) {
             discovering = true;
             runAsync(["bluetoothctl", "scan", "on"]).then(() => {
@@ -239,15 +243,16 @@ Singleton {
     function performUpdate() {
         if (isUpdating) return;
         isUpdating = true;
-        checkPowerProcess.running = true;
+        checkAvailableProcess.buffer = "";
+        checkAvailableProcess.running = true;
     }
 
     // Timers
     Timer {
         id: updateTimer
         interval: 5000
-        // Only poll when interface is visible
-        running: root.enabled && !SuspendManager.isSuspending && (GlobalStates.dashboardOpen || GlobalStates.launcherOpen || GlobalStates.overviewOpen)
+        // Only poll when interface is visible and hardware available (null-safety)
+        running: (root.available ?? false) && root.enabled && !SuspendManager.isSuspending && (GlobalStates.dashboardOpen || GlobalStates.launcherOpen || GlobalStates.overviewOpen)
         repeat: true
         onTriggered: root.updateDevices()
     }
@@ -261,6 +266,35 @@ Singleton {
     }
 
     // Processes
+    Process {
+        id: checkAvailableProcess
+        command: ["bluetoothctl", "list"]
+        running: false
+        property string buffer: ""
+        stdout: SplitParser {
+            onRead: data => checkAvailableProcess.buffer += data + "\n"
+        }
+        stderr: SplitParser {
+            onRead: data => checkAvailableProcess.buffer += data + "\n"
+        }
+        onExited: (exitCode, exitStatus) => {
+            const out = (checkAvailableProcess.buffer ?? "").trim();
+            const hasController = out.length > 0 && out.toLowerCase().includes("controller");
+            // null-safety: ensures bool even if out undefined
+            root.available = hasController ? true : false;
+            checkAvailableProcess.buffer = "";
+            if (hasController) {
+                checkPowerProcess.running = true;
+            } else {
+                root.enabled = false;
+                root.connected = false;
+                root.connectedDevices = 0;
+                root.discovering = false;
+                root.isUpdating = false;
+            }
+        }
+    }
+
     Process {
         id: checkPowerProcess
         command: ["bash", "-c", "bluetoothctl show | grep 'Powered:' | awk '{print $2}'"]
@@ -297,6 +331,7 @@ Singleton {
     }
 
     function updateDevices() {
+        if (!root.available) return;
         getDevicesProcess.running = true;
     }
 

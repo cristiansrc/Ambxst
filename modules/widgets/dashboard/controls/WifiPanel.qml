@@ -16,28 +16,53 @@ Item {
     readonly property int contentWidth: Math.min(width, maxContentWidth)
     readonly property real sideMargin: (width - contentWidth) / 2
 
+    // Null-safe hardware availability (patrón Battery.available)
+    readonly property bool wifiAvailable: NetworkService ? (NetworkService.wifiAvailable ?? false) : false
+
     Component.onCompleted: {
-        // Defer scan to avoid blocking UI initialization
-        initialScanTimer.start();
+        // Defer scan to avoid blocking UI initialization (solo si hay hardware)
+        if (wifiAvailable) initialScanTimer.start();
     }
 
     Timer {
         id: initialScanTimer
         interval: 300
         repeat: false
-        onTriggered: NetworkService.rescanWifi()
+        onTriggered: {
+            if (root.wifiAvailable && NetworkService) NetworkService.rescanWifi();
+        }
+    }
+
+    // No hardware placeholder (StyledRect, sin colores hardcodeados)
+    StyledRect {
+        visible: !root.wifiAvailable
+        anchors.centerIn: parent
+        variant: "common"
+        implicitWidth: noHardwareText.implicitWidth + 32
+        implicitHeight: noHardwareText.implicitHeight + 32
+        radius: Styling.radius(0)
+
+        Text {
+            id: noHardwareText
+            anchors.centerIn: parent
+            text: "No Wi-Fi hardware detected"
+            font.family: Config.theme.font
+            font.pixelSize: Config.theme.fontSize
+            color: Colors.overSurfaceVariant
+        }
     }
 
     // Network list - fills entire width for scroll/drag
     ListView {
         id: networkList
+        visible: root.wifiAvailable
         anchors.fill: parent
         clip: true
         spacing: 4
         cacheBuffer: 1000
         reuseItems: true
 
-        model: NetworkService.friendlyWifiNetworks
+        model: NetworkService ? NetworkService.friendlyWifiNetworks : []
 
         header: Item {
             width: networkList.width
@@ -48,18 +73,18 @@ Item {
                 width: root.contentWidth
                 anchors.horizontalCenter: parent.horizontalCenter
                 title: "Wi-Fi"
-                statusText: NetworkService.wifiConnecting ? "Connecting..." : (NetworkService.wifiStatus === "limited" ? "Limited" : "")
-                statusColor: NetworkService.wifiStatus === "limited" ? Colors.warning : Styling.srItem("overprimary")
+                statusText: (NetworkService && NetworkService.wifiConnecting) ? "Connecting..." : (NetworkService && NetworkService.wifiStatus === "limited" ? "Limited" : "")
+                statusColor: (NetworkService && NetworkService.wifiStatus === "limited") ? Colors.warning : Styling.srItem("overprimary")
                 showToggle: true
-                toggleChecked: NetworkService.wifiStatus !== "disabled"
+                toggleChecked: NetworkService ? NetworkService.wifiStatus !== "disabled" : false
 
                 actions: [
                     {
                         icon: Icons.globe,
                         tooltip: "Open captive portal",
-                        enabled: NetworkService.wifiStatus === "limited",
+                        enabled: NetworkService ? NetworkService.wifiStatus === "limited" : false,
                         onClicked: function () {
-                            NetworkService.openPublicWifiPortal();
+                            if (NetworkService) NetworkService.openPublicWifiPortal();
                         }
                     },
                     {
@@ -72,15 +97,16 @@ Item {
                     {
                         icon: Icons.sync,
                         tooltip: "Rescan networks",
-                        enabled: NetworkService.wifiEnabled,
-                        loading: NetworkService.wifiScanning || NetworkService.isUpdating,
+                        enabled: NetworkService ? NetworkService.wifiEnabled : false,
+                        loading: NetworkService ? (NetworkService.wifiScanning || NetworkService.isUpdating) : false,
                         onClicked: function () {
-                            NetworkService.rescanWifi();
+                            if (NetworkService) NetworkService.rescanWifi();
                         }
                     }
                 ]
 
                 onToggleChanged: checked => {
+                    if (!NetworkService) return;
                     NetworkService.enableWifi(checked);
                     if (checked) {
                         NetworkService.rescanWifi();
@@ -102,11 +128,11 @@ Item {
             }
         }
 
-        // Empty state
+        // Empty state (null-safety)
         Text {
             anchors.centerIn: parent
-            visible: networkList.count === 0 && !NetworkService.wifiScanning
-            text: NetworkService.wifiEnabled ? "No networks found" : "Wi-Fi is disabled"
+            visible: root.wifiAvailable && networkList.count === 0 && !(NetworkService ? NetworkService.wifiScanning : false)
+            text: (NetworkService && NetworkService.wifiEnabled) ? "No networks found" : "Wi-Fi is disabled"
             font.family: Config.theme.font
             font.pixelSize: Config.theme.fontSize
             color: Colors.overSurfaceVariant

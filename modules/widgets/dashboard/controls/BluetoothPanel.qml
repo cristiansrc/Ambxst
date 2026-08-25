@@ -17,9 +17,12 @@ Item {
     readonly property int contentWidth: Math.min(width, maxContentWidth)
     readonly property real sideMargin: (width - contentWidth) / 2
 
+    // Null-safe hardware availability (patrón Battery.available)
+    readonly property bool btAvailable: BluetoothService ? (BluetoothService.available ?? false) : false
+
     Component.onCompleted: {
         // Only refresh device list, don't start scanning automatically
-        if (BluetoothService.enabled) {
+        if (btAvailable && BluetoothService && BluetoothService.enabled) {
             // Defer update to avoid blocking UI initialization
             initialUpdateTimer.start();
         }
@@ -29,23 +32,45 @@ Item {
         id: initialUpdateTimer
         interval: 300
         repeat: false
-        onTriggered: BluetoothService.updateDevices()
+        onTriggered: {
+            if (root.btAvailable && BluetoothService) BluetoothService.updateDevices();
+        }
     }
 
     Component.onDestruction: {
-        BluetoothService.stopDiscovery();
+        if (BluetoothService) BluetoothService.stopDiscovery();
+    }
+
+    // No hardware placeholder (StyledRect, sin colores hardcodeados)
+    StyledRect {
+        visible: !root.btAvailable
+        anchors.centerIn: parent
+        variant: "common"
+        implicitWidth: noBtText.implicitWidth + 32
+        implicitHeight: noBtText.implicitHeight + 32
+        radius: Styling.radius(0)
+
+        Text {
+            id: noBtText
+            anchors.centerIn: parent
+            text: "No Bluetooth hardware detected"
+            font.family: Config.theme.font
+            font.pixelSize: Config.theme.fontSize
+            color: Colors.overSurfaceVariant
+        }
     }
 
     // Device list - fills entire width for scroll/drag
     ListView {
         id: deviceList
+        visible: root.btAvailable
         anchors.fill: parent
         clip: true
         spacing: 4
         cacheBuffer: 1000
         reuseItems: true
 
-        model: BluetoothService.friendlyDeviceList
+        model: BluetoothService ? BluetoothService.friendlyDeviceList : []
 
         header: Item {
             width: deviceList.width
@@ -57,7 +82,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 title: "Bluetooth"
                 showToggle: true
-                toggleChecked: BluetoothService.enabled
+                toggleChecked: BluetoothService ? BluetoothService.enabled : false
 
                 actions: [
                     {
@@ -70,15 +95,16 @@ Item {
                     {
                         icon: Icons.sync,
                         tooltip: "Scan for devices",
-                        enabled: BluetoothService.enabled,
-                        loading: BluetoothService.discovering || BluetoothService.isUpdating,
+                        enabled: BluetoothService ? BluetoothService.enabled : false,
+                        loading: BluetoothService ? (BluetoothService.discovering || BluetoothService.isUpdating) : false,
                         onClicked: function () {
-                            BluetoothService.startDiscovery();
+                            if (BluetoothService) BluetoothService.startDiscovery();
                         }
                     }
                 ]
 
                 onToggleChanged: checked => {
+                    if (!BluetoothService) return;
                     BluetoothService.setEnabled(checked);
                     if (checked) {
                         BluetoothService.startDiscovery();
@@ -100,11 +126,11 @@ Item {
             }
         }
 
-        // Empty state
+        // Empty state (null-safety)
         Text {
             anchors.centerIn: parent
-            visible: deviceList.count === 0 && !BluetoothService.discovering
-            text: BluetoothService.enabled ? "No devices found" : "Bluetooth is disabled"
+            visible: root.btAvailable && deviceList.count === 0 && !(BluetoothService ? BluetoothService.discovering : false)
+            text: (BluetoothService && BluetoothService.enabled) ? "No devices found" : "Bluetooth is disabled"
             font.family: Config.theme.font
             font.pixelSize: Config.theme.fontSize
             color: Colors.overSurfaceVariant

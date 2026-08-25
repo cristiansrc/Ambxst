@@ -11,6 +11,7 @@ Singleton {
 
     property bool wifi: true
     property bool ethernet: false
+    property bool wifiAvailable: false
 
     property bool wifiEnabled: false
     property bool wifiScanning: false
@@ -101,6 +102,7 @@ Singleton {
     }
 
     function enableWifi(enabled = true): void {
+        if (!(root.wifiAvailable ?? false)) return;
         isUpdating = true;
         const cmd = enabled ? "on" : "off";
         runAsync(["nmcli", "radio", "wifi", cmd]).then(() => {
@@ -112,10 +114,12 @@ Singleton {
     }
 
     function toggleWifi(): void {
+        if (!(root.wifiAvailable ?? false)) return;
         enableWifi(!wifiEnabled);
     }
 
     function rescanWifi(): void {
+        if (!(root.wifiAvailable ?? false)) return;
         const now = Date.now();
         if (now - lastScanTime < 10000) { // 10s throttle
             getNetworks.running = true;
@@ -245,11 +249,13 @@ Singleton {
             const connectivity = lines.pop();
             let hasEthernet = false;
             let hasWifi = false;
+            let hasWifiDevice = false;
             let wifiStatus = "disconnected";
             lines.forEach(line => {
                 if (line.includes("ethernet") && line.includes("connected"))
                     hasEthernet = true;
                 else if (line.includes("wifi:")) {
+                    hasWifiDevice = true;
                     if (line.includes("disconnected")) {
                         wifiStatus = "disconnected";
                     } else if (line.includes("connected")) {
@@ -269,6 +275,7 @@ Singleton {
             root.wifiStatus = wifiStatus;
             root.ethernet = hasEthernet;
             root.wifi = hasWifi;
+            root.wifiAvailable = hasWifiDevice;
             root.isUpdating = false;
         }
     }

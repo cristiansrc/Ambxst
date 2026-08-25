@@ -168,11 +168,17 @@ Item {
         active: false
         sourceComponent: dashboardViewComponent
         onLoaded: {
-            if (item) item.screenName = root.screen.name;
+            if (item) {
+                item.screenName = root.screen.name;
+                if (!root.screen.name) console.warn("NotchContent: persistentDashboardViewLoader onLoaded screenName vacío, root.screen:", root.screen);
+            }
         }
-        // Mantener screenName sincronizado dinámicamente para N monitores (hotplug / rename)
+        // Mantener screenName sincronizado dinámicamente para N monitores (hotplug / rename) sin shadowing
         onActiveChanged: {
-            if (active && item) item.screenName = root.screen.name;
+            if (active && item) {
+                item.screenName = root.screen.name;
+                if (!root.screen.name) console.warn("NotchContent: persistentDashboardViewLoader onActiveChanged screenName vacío");
+            }
         }
     }
 
@@ -181,7 +187,7 @@ Item {
         DashboardView { visible: false }
     }
 
-    // Binding reactivo N-monitores: propaga root.screen.name al item cargado
+    // Binding reactivo N-monitores: propaga root.screen.name al item cargado sin shadowing
     // ShellScreen no emite nameChanged; el reemplazo de monitor emite screenChanged en root.
     // El Binding es reactivo a root.screen.name y evita dead-code / ignoreUnknownSignals / shadowing.
     Binding {
@@ -189,6 +195,14 @@ Item {
         when: persistentDashboardViewLoader.item !== null
         property: "screenName"
         value: root.screen.name
+    }
+
+    // Debug: detectar shadowing o screenName vacío que rompería tuerca per-screen (gear -> SettingsWindow)
+    onScreenChanged: {
+        if (!screen || !screen.name) console.warn("NotchContent: screenName vacío tras screenChanged, root.screen:", screen);
+    }
+    Component.onCompleted: {
+        if (!root.screen || !root.screen.name) console.warn("NotchContent: screenName vacío en onCompleted, verificar Variants model Quickshell.screens");
     }
 
     // Persistent power menu view

@@ -96,11 +96,14 @@ QtObject {
         }
     }
 
-    // Helper dinámico N monitores: busca screen en Quickshell.screens si AxctlService no lo tiene
+    // Helper dinámico N monitores: busca screen en Quickshell.screens (fuente de verdad para FloatingWindow.screen) dinámico
     function resolveScreenByName(name) {
-        if (!name) return null;
-        for (let i = 0; i < Quickshell.screens.length; i++) {
-            if (Quickshell.screens[i].name === name) return Quickshell.screens[i];
+        const n = (name || "").trim();
+        if (!n) return null;
+        // Quickshell.screens es dinámico N (hotplug) — iterar cada vez, no cachear
+        const screens = Quickshell.screens || [];
+        for (let i = 0; i < screens.length; i++) {
+            if (screens[i] && screens[i].name === n) return screens[i];
         }
         return null;
     }
@@ -109,33 +112,69 @@ QtObject {
         const willOpen = !GlobalStates.settingsWindowVisible;
         if (willOpen) {
             const trimmed = (screenName || "").trim();
-            // Prioridad: AxctlService.monitorFor(trimmed) -> Quickshell.screens -> focusedMonitor
-            let targetMonitor = trimmed ? AxctlService.monitorFor(trimmed) : null;
-            let targetScreen = trimmed ? resolveScreenByName(trimmed) : null;
+            if (!trimmed) console.warn("toggleSettings: screenName vacío, verificar DashboardView screenName propagation sin shadowing");
+            else console.log("toggleSettings request screenName:", trimmed, "screens:", (Quickshell.screens||[]).map(s=>s.name).join(","));
 
-            // Si AxctlService no conoce el monitor (race daemon), usar Quickshell screen como fallback
-            if (!targetMonitor && targetScreen) {
-                // Crear objeto compatible para workspace/focus
+            // Resolver estrictamente vía Quickshell.screens cuando screenName válido — NO fallback a focusedMonitor si válido
+            let targetScreen = trimmed ? resolveScreenByName(trimmed) : null;
+            let targetMonitor = trimmed ? AxctlService.monitorFor(trimmed) : null;
+
+            // Si hay screen válido pero Axctl aún no reporta monitor (race), intentar mapear via screen name
+            if (targetScreen && !targetMonitor) {
                 const monForScreen = AxctlService.monitorFor(targetScreen.name);
                 if (monForScreen) targetMonitor = monForScreen;
             }
-            if (!targetMonitor) targetMonitor = AxctlService.focusedMonitor;
-            if (!targetScreen && trimmed) targetScreen = resolveScreenByName(trimmed);
+            // Si hay monitor válido pero no screen (ej. hyprland name vs Quickshell name difiere), resolver screen por monitor.name
+            if (targetMonitor && !targetScreen) {
+                targetScreen = resolveScreenByName(targetMonitor.name);
+            }
 
-            // Nombre canónico: preferir Axctl monitor name, fallback a Quickshell screen name
-            const canonicalName = targetMonitor?.name || targetScreen?.name || AxctlService.focusedMonitor?.name || (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "");
+            let canonicalName = "";
+            let targetWorkspaceId = 0;
+            if (trimmed) {
+                // screenName válido: canonical es el nombre resuelto dinámicamente, no focusedMonitor
+                if (targetScreen) canonicalName = targetScreen.name;
+                else if (targetMonitor) canonicalName = targetMonitor.name;
+                else {
+                    console.warn("toggleSettings: screenName válido pero no resuelto en Quickshell.screens/AxctlService, usando trimmed como canonical:", trimmed);
+                    canonicalName = trimmed; // preserva intención del monitor clickeado, evita caer a focusedMonitor
+                }
+                // WorkspaceId por monitor: preferir activeWorkspace del targetMonitor, no del focused
+                targetWorkspaceId = targetMonitor?.activeWorkspace?.id || 0;
+                // Si no hay monitor pero sí screen, intentar obtener workspace via screen->monitor mapping
+                if (!targetWorkspaceId && targetScreen) {
+                    const m2 = AxctlService.monitorFor(targetScreen.name);
+                    targetWorkspaceId = m2?.activeWorkspace?.id || 0;
+                }
+            } else {
+                // Sin screenName (fallback legacy): usar focusedMonitor dinámico
+                targetMonitor = AxctlService.focusedMonitor;
+                targetScreen = targetMonitor ? resolveScreenByName(targetMonitor.name) : null;
+                if (!targetScreen && Quickshell.screens.length > 0) targetScreen = Quickshell.screens[0];
+                canonicalName = targetMonitor?.name || targetScreen?.name || (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "");
+                targetWorkspaceId = targetMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0;
+            }
+            // Fallback final para canonical si aún vacío y no había trimmed
+            if (!canonicalName) {
+                canonicalName = AxctlService.focusedMonitor?.name || (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "");
+            }
+            // Fallback workspaceId
+            if (!targetWorkspaceId) targetWorkspaceId = AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0;
 
-            GlobalStates.settingsTargetWorkspaceId = targetMonitor?.activeWorkspace?.id || AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0;
+            GlobalStates.settingsTargetWorkspaceId = targetWorkspaceId;
             GlobalStates.settingsTargetScreenName = canonicalName;
-            console.log("toggleSettings screenName:", trimmed, "-> canonical:", canonicalName, "monitor:", targetMonitor?.name, "screen:", targetScreen?.name);
+            console.log("toggleSettings screenName:", trimmed, "-> canonical:", canonicalName, "targetMonitor:", targetMonitor?.name, "targetScreen:", targetScreen?.name, "ws:", targetWorkspaceId, "screens:", (Quickshell.screens||[]).map(s=>s.name).join(","));
 
+            // Focus dinámico N: solo si target difiere de focused, usando id correcto por monitor
             if (targetMonitor && AxctlService.focusedMonitor && targetMonitor.id !== AxctlService.focusedMonitor.id) {
                 AxctlService.dispatch(`focusmonitor ${targetMonitor.id}`);
             } else if (targetScreen && AxctlService.focusedMonitor && targetScreen.name !== AxctlService.focusedMonitor.name) {
-                // Fallback: resolver monitor id via AxctlService para el screen target
                 const fallbackMon = AxctlService.monitorFor(targetScreen.name);
-                if (fallbackMon && fallbackMon.id !== AxctlService.focusedMonitor.id) {
+                if (fallbackMon && AxctlService.focusedMonitor && fallbackMon.id !== AxctlService.focusedMonitor.id) {
                     AxctlService.dispatch(`focusmonitor ${fallbackMon.id}`);
+                } else if (!fallbackMon) {
+                    // Si aún no hay mapeo, intentar dispatch por nombre (axctl lo resuelve)
+                    AxctlService.dispatch(`focusmonitor ${targetScreen.name}`);
                 }
             }
             Qt.callLater(() => Visibilities.setActiveModule(""));

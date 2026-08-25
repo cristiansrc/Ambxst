@@ -332,7 +332,11 @@ NotchAnimationBehavior {
                     }
                 }
 
-                onClicked: GlobalShortcuts.toggleSettings(root.screenName)
+                onClicked: {
+                    if (!root.screenName) console.warn("Dashboard gear: screenName vacío, verificar DashboardView -> Dashboard propagation sin shadowing, root.screenName:", root.screenName);
+                    else console.log("Dashboard gear clicked screenName:", root.screenName);
+                    GlobalShortcuts.toggleSettings(root.screenName);
+                }
             }
         }
 

@@ -42,8 +42,8 @@ Item {
     readonly property int workspaceGroup: perMonitorMode ? 0 : Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / (Config.workspaces.shown ?? 10))
     property var workspaceOccupied: []
     property var dynamicWorkspaceIds: []
-    // effectiveWorkspaceCount dinámico: perMonitor muestra exactamente perMonitorShown (5) dots independientes por monitor
-    property int effectiveWorkspaceCount: Config.workspaces.dynamic ? dynamicWorkspaceIds.length : (perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10))
+    // effectiveWorkspaceCount dinámico: perMonitor muestra exactamente perMonitorShown (5) dots independientes por monitor (prioridad perMonitor > dynamic)
+    property int effectiveWorkspaceCount: perMonitorMode ? perMonitorShown : (Config.workspaces.dynamic ? dynamicWorkspaceIds.length : (Config.workspaces.shown ?? 10))
     property int widgetPadding: 4
     property real radius: Styling.radius(0)
     property real startRadius: radius
@@ -67,30 +67,74 @@ Item {
     }
     property var occupiedRanges: []
 
+    // Helper: ocupación filtrada por monitor asignado (no solo ID). Usa CompositorData si existe o Axctl workspace monitor_id.
+    // En perMonitorMode el ID ya está particionado, pero filtramos además por workspace.monitor == bar.screen.name para evitar
+    // que workspaces globales (1,2,3) se muestren como ocupados en monitores equivocados tras hard restart.
+    function workspaceBelongsToCurrentMonitor(wsId) {
+        const mName = (bar && bar.screen && bar.screen.name) ? bar.screen.name : (monitor && monitor.name ? monitor.name : "");
+        if (!mName) return true; // null-safety: si no hay nombre, no filtrar
+        const wsVals = AxctlService.workspaces.values || [];
+        for (let k = 0; k < wsVals.length; k++) {
+            const w = wsVals[k];
+            if (w && w.id === wsId) {
+                const wMon = w.monitor;
+                if (wMon === undefined || wMon === null || wMon === "") return true;
+                // wMon puede ser nombre (HDMI-A-1) o id numérico
+                if (String(wMon) === String(mName)) return true;
+                if (monitor && monitor.id !== undefined && String(wMon) === String(monitor.id)) return true;
+                return false;
+            }
+        }
+        // Si workspace aún no existe en AxctlService, considerar no-ocupado para este monitor (evita false positivos cross-monitor)
+        // La ocupación real se basa en CompositorData.workspaceOccupationMap, pero si no hay objeto workspace, no pertenece
+        return false;
+    }
+
     // Rangos dinámicos basados en Quickshell.screens.length y AxctlService.monitors — ID = monitorOffset*perMonitorCount + index +1
     function updateWorkspaceOccupied() {
+        const mName = (bar && bar.screen && bar.screen.name) ? bar.screen.name : (monitor && monitor.name ? monitor.name : "");
         if (Config.workspaces.dynamic) {
             const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
-            let occupiedIds = (AxctlService.workspaces.values || []).filter(ws => ws && CompositorData.workspaceOccupationMap[ws.id]).map(ws => ws.id).sort((a, b) => a - b);
-            if (perMonitorMode) {
-                // Filtra solo workspaces del rango dinámico de este monitor: [monitorOffset*perMonitorShown+1 .. (monitorOffset+1)*perMonitorShown]
-                const startId = monitorOffset * perMonitorShown + 1;
-                const endId = startId + perMonitorShown - 1;
-                occupiedIds = occupiedIds.filter(id => id >= startId && id <= endId);
-            }
+            let occupiedIds = (AxctlService.workspaces.values || []).filter(ws => {
+                if (!ws || ws.id === undefined) return false;
+                if (!CompositorData.workspaceOccupationMap[ws.id]) return false;
+                if (perMonitorMode) {
+                    const startId = monitorOffset * perMonitorShown + 1;
+                    const endId = startId + perMonitorShown - 1;
+                    if (ws.id < startId || ws.id > endId) return false;
+                    // Filtro adicional por monitor asignado (evita que ws 2@DP-1 aparezca en HDMI-A-1 rango 1-5)
+                    const wMon = ws.monitor;
+                    if (wMon !== undefined && wMon !== null && wMon !== "") {
+                        if (String(wMon) !== String(mName) && (monitor && monitor.id !== undefined ? String(wMon) !== String(monitor.id) : true)) return false;
+                    }
+                }
+                return true;
+            }).map(ws => ws.id).sort((a, b) => a - b);
             occupiedIds = occupiedIds.slice(0, shownVal);
 
-            // Always include active workspace, even if empty
+            // Always include active workspace, even if empty (solo si pertenece al monitor en perMonitorMode)
             const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
             if (perMonitorMode) {
                 const startId = monitorOffset * perMonitorShown + 1;
                 const endId = startId + perMonitorShown - 1;
                 if (activeId >= startId && activeId <= endId && !occupiedIds.includes(activeId)) {
-                    occupiedIds.push(activeId);
-                    occupiedIds.sort((a, b) => a - b);
-                    if (occupiedIds.length > shownVal) occupiedIds.pop();
+                    // Para active, verificar también pertenencia por monitor si el workspace objeto existe
+                    let belongs = true;
+                    const wsVals2 = AxctlService.workspaces.values || [];
+                    for (let p = 0; p < wsVals2.length; p++) {
+                        if (wsVals2[p] && wsVals2[p].id === activeId) {
+                            const wMon2 = wsVals2[p].monitor;
+                            if (wMon2 !== undefined && wMon2 !== null && wMon2 !== "" && String(wMon2) !== String(mName) && (monitor && monitor.id !== undefined ? String(wMon2) !== String(monitor.id) : true)) belongs = false;
+                            break;
+                        }
+                    }
+                    if (belongs) {
+                        occupiedIds.push(activeId);
+                        occupiedIds.sort((a, b) => a - b);
+                        if (occupiedIds.length > shownVal) occupiedIds.pop();
+                    }
                 } else if (activeId < startId || activeId > endId) {
-                    // active is on other monitor; ensure we still show occupied for this monitor
+                    // active is on other monitor; ensure we still show occupied for this monitor (no-op, filtered arriba)
                 }
             } else {
                 if (!occupiedIds.includes(activeId)) {
@@ -105,14 +149,18 @@ Item {
                 length: dynamicWorkspaceIds.length
             }, (_, i) => CompositorData.workspaceOccupationMap[dynamicWorkspaceIds[i]]);
         } else {
-            // No-dynamic: cada monitor muestra exactamente perMonitorShown dots independientes
+            // No-dynamic: cada monitor muestra exactamente perMonitorShown dots independientes (clamp 1..20)
             const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
             workspaceOccupied = Array.from({
                 length: shownVal
             }, (_, i) => {
-                // ID dinámico per-monitor: monitorOffset*perMonitorShown + index +1
+                // ID dinámico per-monitor: monitorOffset*perMonitorShown + index +1 (1-5,6-10,11-15)
                 const wsId = perMonitorMode ? monitorOffset * perMonitorShown + i + 1 : workspaceGroup * (Config.workspaces.shown ?? 10) + i + 1;
-                return CompositorData.workspaceOccupationMap[wsId];
+                const occupied = CompositorData.workspaceOccupationMap[wsId] || false;
+                if (!perMonitorMode) return occupied;
+                // En perMonitorMode filtrar ocupación por monitor asignado (ID en rango + monitor == bar.screen.name)
+                if (!occupied) return false;
+                return workspaceBelongsToCurrentMonitor(wsId) ? true : false;
             });
         }
         updateOccupiedRanges();

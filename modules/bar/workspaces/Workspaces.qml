@@ -62,8 +62,86 @@ Item {
     // Total workspaces sistema = perMonitorShown * Quickshell.screens.length (2→10, 3→15)
     readonly property int perMonitorShown: perMonitorMode ? Math.max(1, Math.min(20, Config.workspaces.perMonitorCount ?? 5)) : (Config.workspaces.shown ?? 10)
 
-    // workspaceGroup deshabilitado en perMonitor: cada monitor tiene grupo 0 independiente, rango calculado por monitorOffset
-    // perMonitor false => global: todos comparten 1..shown (o grupo global basado en focusedWorkspace, no per-monitor)
+    // Lista real por monitor: filtra AxctlService.workspaces.values donde ws.monitor == bar.screen.name, ordena por id,
+    // toma hasta perMonitorCount, incluye activeWorkspace.id si no está. Prioritaria sobre offset virtual.
+    // Fallback a offset*count si no hay workspaces reales (boot temprano). Reactiva a workspaces, monitors y screens.
+    readonly property var perMonitorRealIds: {
+        if (!perMonitorMode) return [];
+        const cnt = perMonitorShown;
+        // dependencias reactivas explícitas para hard-restart-free: screens, workspaces, monitors
+        const _scrLen = Quickshell.screens.length;
+        const wsVals = AxctlService.workspaces.values;
+        const _monVals = AxctlService.monitors.values;
+        const curMon = AxctlService.monitorFor(bar.screen);
+        const mName = curMon && curMon.name ? curMon.name : (monitor && monitor.name ? monitor.name : (bar.screen && bar.screen.name ? bar.screen.name : ""));
+        const curMonId = curMon && curMon.id !== undefined ? curMon.id : (monitor && monitor.id !== undefined ? monitor.id : undefined);
+        if (!mName) {
+            const off = monitorOffset;
+            let arr = [];
+            for (let i = 0; i < cnt; i++) arr.push(off * cnt + i + 1);
+            return arr;
+        }
+        let filtered = [];
+        for (let i = 0; i < (wsVals || []).length; i++) {
+            const w = wsVals[i];
+            if (!w || w.id === undefined || w.id === null) continue;
+            const wMon = w.monitor;
+            if (wMon === undefined || wMon === null || String(wMon) === "") continue;
+            if (String(wMon) === String(mName) || (curMonId !== undefined && String(wMon) === String(curMonId))) {
+                filtered.push(w);
+            }
+        }
+        filtered.sort((a, b) => (a.id || 0) - (b.id || 0));
+        let ids = filtered.map(w => w.id);
+        if (ids.length === 0) {
+            const off = monitorOffset;
+            let arr = [];
+            for (let i = 0; i < cnt; i++) arr.push(off * cnt + i + 1);
+            const activeId = curMon && curMon.activeWorkspace ? curMon.activeWorkspace.id : (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined);
+            if (activeId !== undefined && activeId !== null && !arr.includes(activeId)) {
+                // Si active pertenece a este monitor pero no está en rango virtual, forzar inclusión manteniendo cnt
+                arr[cnt - 1] = activeId;
+                arr.sort((a, b) => a - b);
+            }
+            return arr;
+        }
+        let sliced = ids.slice(0, cnt);
+        const activeId2 = curMon && curMon.activeWorkspace ? curMon.activeWorkspace.id : (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined);
+        if (activeId2 !== undefined && activeId2 !== null && !sliced.includes(activeId2)) {
+            let belongs = false;
+            let found = false;
+            for (let k = 0; k < (wsVals || []).length; k++) {
+                if (wsVals[k] && wsVals[k].id === activeId2) {
+                    found = true;
+                    const wm = wsVals[k].monitor;
+                    if (String(wm) === String(mName) || (curMonId !== undefined && String(wm) === String(curMonId))) belongs = true;
+                    break;
+                }
+            }
+            if (!found) belongs = true; // workspace aún no en lista pero active del monitor => asumir pertenece
+            if (belongs) {
+                sliced.push(activeId2);
+                sliced.sort((a, b) => a - b);
+                if (sliced.length > cnt) {
+                    // mantener cnt, remover el más lejano que no sea active
+                    let rmIdx = sliced.length - 1;
+                    if (sliced[rmIdx] === activeId2) rmIdx = sliced.length - 2;
+                    // si active está en medio, remover último (no active)
+                    if (rmIdx >= 0) sliced.splice(rmIdx, 1);
+                    if (!sliced.includes(activeId2)) {
+                        // edge: active fue removido, reinsertar forzado
+                        sliced[cnt - 1] = activeId2;
+                        sliced.sort((a, b) => a - b);
+                    }
+                    if (sliced.length > cnt) sliced = sliced.slice(0, cnt);
+                }
+            }
+        }
+        return sliced;
+    }
+
+    // workspaceGroup deshabilitado en perMonitor: cada monitor tiene grupo 0 independiente, rango calculado por lista real
+    // perMonitor false => global: todos comparten 1..shown (grupo global basado en focusedWorkspace global, no per-monitor)
     readonly property int workspaceGroup: {
         if (perMonitorMode) return 0;
         const shownVal = Math.max(1, Math.min(20, Config.workspaces.shown ?? 10));
@@ -75,8 +153,9 @@ Item {
     }
     property var workspaceOccupied: []
     property var dynamicWorkspaceIds: []
-    // effectiveWorkspaceCount dinámico: perMonitor muestra exactamente perMonitorShown (5) dots independientes por monitor (prioridad perMonitor > dynamic)
-    property int effectiveWorkspaceCount: perMonitorMode ? perMonitorShown : (Config.workspaces.dynamic ? dynamicWorkspaceIds.length : (Config.workspaces.shown ?? 10))
+    // effectiveWorkspaceCount: perMonitor usa perMonitorRealIds.length (dinámico hasta perMonitorCount), fallback perMonitorShown
+    // global: shown (10) o dynamic length, compartido por todos los monitores
+    property int effectiveWorkspaceCount: perMonitorMode ? (perMonitorRealIds.length > 0 ? perMonitorRealIds.length : perMonitorShown) : (Config.workspaces.dynamic ? dynamicWorkspaceIds.length : (Config.workspaces.shown ?? 10))
     property int widgetPadding: 4
     property real radius: Styling.radius(0)
     property real startRadius: radius
@@ -90,10 +169,15 @@ Item {
     property real workspaceIconOpacityShrinked: 1
     property real workspaceIconMarginShrinked: -4
     property int workspaceIndexInGroup: {
-        const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
+        // dependencias reactivas: monitors, workspaces y perMonitorRealIds
+        const _monVals2 = AxctlService.monitors.values;
+        const curMon2 = AxctlService.monitorFor(bar.screen);
+        const activeId = (curMon2 && curMon2.activeWorkspace ? curMon2.activeWorkspace.id : (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined)) || 1;
         if (perMonitorMode) {
-            const idx = activeId - monitorOffset * perMonitorShown - 1;
-            return Math.max(0, Math.min(perMonitorShown - 1, idx));
+            const idx = perMonitorRealIds.indexOf(activeId);
+            if (idx >= 0) return idx;
+            // active no está en lista real (p.ej. workspace de otro monitor) => 0
+            return 0;
         }
         if (Config.workspaces.dynamic) return dynamicWorkspaceIds.indexOf(activeId);
         return ((activeId - 1 || 0) % (Config.workspaces.shown ?? 10));
@@ -123,78 +207,44 @@ Item {
         return false;
     }
 
-    // Rangos dinámicos basados en Quickshell.screens.length y AxctlService.monitors — ID = monitorOffset*perMonitorCount + index +1
+    // Lógica corregida: perMonitor true => IDs reales por monitor (filtrado ws.monitor == bar.screen.name)
+    // perMonitor false => pool global 1..shown sin filtro monitor, ocupación global
     function updateWorkspaceOccupied() {
-        const mName = (bar && bar.screen && bar.screen.name) ? bar.screen.name : (monitor && monitor.name ? monitor.name : "");
-        if (Config.workspaces.dynamic) {
-            const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
-            let occupiedIds = (AxctlService.workspaces.values || []).filter(ws => {
-                if (!ws || ws.id === undefined) return false;
-                if (!CompositorData.workspaceOccupationMap[ws.id]) return false;
-                if (perMonitorMode) {
-                    const startId = monitorOffset * perMonitorShown + 1;
-                    const endId = startId + perMonitorShown - 1;
-                    if (ws.id < startId || ws.id > endId) return false;
-                    // Filtro adicional por monitor asignado (evita que ws 2@DP-1 aparezca en HDMI-A-1 rango 1-5)
-                    const wMon = ws.monitor;
-                    if (wMon !== undefined && wMon !== null && wMon !== "") {
-                        if (String(wMon) !== String(mName) && (monitor && monitor.id !== undefined ? String(wMon) !== String(monitor.id) : true)) return false;
-                    }
-                }
-                return true;
-            }).map(ws => ws.id).sort((a, b) => a - b);
-            occupiedIds = occupiedIds.slice(0, shownVal);
-
-            // Always include active workspace, even if empty (solo si pertenece al monitor en perMonitorMode)
-            const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
-            if (perMonitorMode) {
-                const startId = monitorOffset * perMonitorShown + 1;
-                const endId = startId + perMonitorShown - 1;
-                if (activeId >= startId && activeId <= endId && !occupiedIds.includes(activeId)) {
-                    // Para active, verificar también pertenencia por monitor si el workspace objeto existe
-                    let belongs = true;
-                    const wsVals2 = AxctlService.workspaces.values || [];
-                    for (let p = 0; p < wsVals2.length; p++) {
-                        if (wsVals2[p] && wsVals2[p].id === activeId) {
-                            const wMon2 = wsVals2[p].monitor;
-                            if (wMon2 !== undefined && wMon2 !== null && wMon2 !== "" && String(wMon2) !== String(mName) && (monitor && monitor.id !== undefined ? String(wMon2) !== String(monitor.id) : true)) belongs = false;
-                            break;
-                        }
-                    }
-                    if (belongs) {
-                        occupiedIds.push(activeId);
-                        occupiedIds.sort((a, b) => a - b);
-                        if (occupiedIds.length > shownVal) occupiedIds.pop();
-                    }
-                } else if (activeId < startId || activeId > endId) {
-                    // active is on other monitor; ensure we still show occupied for this monitor (no-op, filtered arriba)
-                }
-            } else {
+        if (perMonitorMode) {
+            const ids = perMonitorRealIds;
+            // Ocupación filtrada por monitor ya que ids son reales del monitor; map directo
+            workspaceOccupied = ids.map(id => CompositorData.workspaceOccupationMap[id] || false);
+            // Mantener dynamicWorkspaceIds sincronizado para compatibilidad (no usado en perMonitor pero útil para highlight)
+            dynamicWorkspaceIds = ids.slice();
+        } else {
+            if (Config.workspaces.dynamic) {
+                const shownVal = Math.max(1, Math.min(20, Config.workspaces.shown ?? 10));
+                let occupiedIds = (AxctlService.workspaces.values || []).filter(ws => {
+                    if (!ws || ws.id === undefined) return false;
+                    if (!CompositorData.workspaceOccupationMap[ws.id]) return false;
+                    return true;
+                }).map(ws => ws.id).sort((a, b) => a - b);
+                occupiedIds = occupiedIds.slice(0, shownVal);
+                const activeId = (AxctlService.focusedWorkspace && AxctlService.focusedWorkspace.id !== undefined ? AxctlService.focusedWorkspace.id : (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined)) || 1;
                 if (!occupiedIds.includes(activeId)) {
                     occupiedIds.push(activeId);
                     occupiedIds.sort((a, b) => a - b);
                     if (occupiedIds.length > shownVal) occupiedIds.pop();
                 }
+                dynamicWorkspaceIds = occupiedIds;
+                workspaceOccupied = Array.from({
+                    length: dynamicWorkspaceIds.length
+                }, (_, i) => CompositorData.workspaceOccupationMap[dynamicWorkspaceIds[i]] || false);
+            } else {
+                // Global compartido: todos los monitores muestran mismos IDs 1..shown (workspaceGroup basado en focusedWorkspace global)
+                const shownVal = Math.max(1, Math.min(20, Config.workspaces.shown ?? 10));
+                workspaceOccupied = Array.from({
+                    length: shownVal
+                }, (_, i) => {
+                    const wsId = workspaceGroup * shownVal + i + 1;
+                    return CompositorData.workspaceOccupationMap[wsId] || false;
+                });
             }
-
-            dynamicWorkspaceIds = occupiedIds;
-            workspaceOccupied = Array.from({
-                length: dynamicWorkspaceIds.length
-            }, (_, i) => CompositorData.workspaceOccupationMap[dynamicWorkspaceIds[i]]);
-        } else {
-            // No-dynamic: cada monitor muestra exactamente perMonitorShown dots independientes (clamp 1..20)
-            const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
-            workspaceOccupied = Array.from({
-                length: shownVal
-            }, (_, i) => {
-                // ID dinámico per-monitor: monitorOffset*perMonitorShown + index +1 (1-5,6-10,11-15)
-                const wsId = perMonitorMode ? monitorOffset * perMonitorShown + i + 1 : workspaceGroup * (Config.workspaces.shown ?? 10) + i + 1;
-                const occupied = CompositorData.workspaceOccupationMap[wsId] || false;
-                if (!perMonitorMode) return occupied;
-                // En perMonitorMode filtrar ocupación por monitor asignado (ID en rango + monitor == bar.screen.name)
-                if (!occupied) return false;
-                return workspaceBelongsToCurrentMonitor(wsId) ? true : false;
-            });
         }
         updateOccupiedRanges();
     }
@@ -237,9 +287,11 @@ Item {
         return Math.round(Math.max(1, Config.theme.fontSize - shrink));
     }
 
-    // ID dinámico per-monitor: monitorOffset*perMonitorCount + index +1 (ej 2 monitores×5 → 10 ws, 3×5→15)
+    // ID por monitor: perMonitor true => IDs reales filtrados (perMonitorRealIds), fallback offset*count
+    // perMonitor false => global compartido: grupo * shown + index, todos los monitores idénticos
     function getWorkspaceId(index) {
         if (perMonitorMode) {
+            if (perMonitorRealIds && index >= 0 && index < perMonitorRealIds.length) return perMonitorRealIds[index];
             return monitorOffset * perMonitorShown + index + 1;
         }
         if (Config.workspaces.dynamic) {
@@ -279,6 +331,20 @@ Item {
         }
     }
 
+    Connections {
+        target: CompositorData
+        function onWorkspaceOccupationMapChanged() {
+            updateTimer.restart();
+        }
+    }
+
+    Connections {
+        target: CompositorData
+        function onWorkspaceWindowsMapChanged() {
+            updateTimer.restart();
+        }
+    }
+
     // Reactivo a cambios de monitores conectados (hotplug) — Quickshell.screens.length y AxctlService.monitors
     Connections {
         target: AxctlService.monitors
@@ -293,6 +359,7 @@ Item {
     onPerMonitorModeChanged: updateTimer.restart()
     onMonitorOffsetChanged: updateTimer.restart()
     onPerMonitorShownChanged: updateTimer.restart()
+    onPerMonitorRealIdsChanged: updateTimer.restart()
 
     implicitWidth: orientation === "vertical" ? baseSize : workspaceButtonSize * effectiveWorkspaceCount + widgetPadding * 2
     implicitHeight: orientation === "vertical" ? workspaceButtonSize * effectiveWorkspaceCount + widgetPadding * 2 : baseSize

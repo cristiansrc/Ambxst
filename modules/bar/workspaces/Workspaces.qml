@@ -26,7 +26,7 @@ Item {
         const idx = monitors.findIndex(m => m && m.name === mName);
         return idx < 0 ? 0 : idx;
     }
-    readonly property int perMonitorShown: perMonitorMode ? Math.max(1, Config.workspaces.shown ?? 10) : (Config.workspaces.shown ?? 10)
+    readonly property int perMonitorShown: perMonitorMode ? Math.max(1, Math.min(20, Config.workspaces.perMonitorCount ?? 5)) : (Config.workspaces.shown ?? 10)
 
     readonly property int workspaceGroup: perMonitorMode ? 0 : Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / (Config.workspaces.shown ?? 10))
     property var workspaceOccupied: []

@@ -6,5 +6,6 @@ var data = {
     "alwaysShowNumbers": false,
     "showNumbers": false,
     "dynamic": false,
-    "perMonitor": false
+    "perMonitor": false,
+    "perMonitorCount": 5
 }

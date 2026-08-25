@@ -46,5 +46,25 @@ function validate(current, defaults, keyName) {
         }
     }
 
+    if (keyName === "perMonitorCount") {
+        if (typeof current !== "number" || isNaN(current)) {
+            return defaults;
+        }
+        var clamped = Math.round(current);
+        if (clamped < 1) return 1;
+        if (clamped > 20) return 20;
+        return clamped;
+    }
+
+    if (keyName === "shown") {
+        if (typeof current !== "number" || isNaN(current)) {
+            return defaults;
+        }
+        var clampedShown = Math.round(current);
+        if (clampedShown < 1) return 1;
+        if (clampedShown > 20) return 20;
+        return clampedShown;
+    }
+
     return current;
 }

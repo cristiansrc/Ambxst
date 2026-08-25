@@ -1241,6 +1241,20 @@ Item {
                                 }
                             }
                         }
+
+                        NumberInputRow {
+                            label: "Per-Monitor Count"
+                            visible: Config.workspaces.perMonitor ?? false
+                            value: Config.workspaces.perMonitorCount ?? 5
+                            minValue: 1
+                            maxValue: 20
+                            onValueEdited: newValue => {
+                                if (newValue !== Config.workspaces.perMonitorCount) {
+                                    GlobalStates.markShellChanged();
+                                    Config.workspaces.perMonitorCount = newValue;
+                                }
+                            }
+                        }
                     }
 
                     Separator {

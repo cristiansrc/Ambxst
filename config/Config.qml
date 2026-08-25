@@ -597,6 +597,7 @@ Singleton {
             property bool showNumbers: false
             property bool dynamic: false
             property bool perMonitor: false
+            property int perMonitorCount: 5
         }
     }
 

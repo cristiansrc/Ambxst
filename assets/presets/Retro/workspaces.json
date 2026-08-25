@@ -3,5 +3,7 @@
     "dynamic": false,
     "showAppIcons": false,
     "showNumbers": true,
-    "shown": 5
+    "shown": 5,
+    "perMonitor": false,
+    "perMonitorCount": 5
 }

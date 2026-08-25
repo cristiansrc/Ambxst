@@ -22,6 +22,7 @@ import "defaults/system.js" as SystemDefaults
 import "defaults/dock.js" as DockDefaults
 import "defaults/ai.js" as AiDefaults
 import "defaults/general.js" as GeneralDefaults
+import "defaults/audio.js" as AudioDefaults
 import "ConfigValidator.js" as ConfigValidator
 
 Singleton {
@@ -57,9 +58,10 @@ Singleton {
     property bool dockReady: false
     property bool aiReady: false
     property bool generalReady: false
+    property bool audioReady: false
     property bool keybindsInitialLoadComplete: false
 
-    property bool initialLoadComplete: themeReady && barReady && workspacesReady && overviewReady && notchReady && compositorReady && performanceReady && weatherReady && desktopReady && lockscreenReady && prefixReady && systemReady && dockReady && aiReady && generalReady
+    property bool initialLoadComplete: themeReady && barReady && workspacesReady && overviewReady && notchReady && compositorReady && performanceReady && weatherReady && desktopReady && lockscreenReady && prefixReady && systemReady && dockReady && aiReady && generalReady && audioReady
 
     // Compatibility aliases
     property alias loader: themeLoader
@@ -549,6 +551,8 @@ Singleton {
             property bool containBar: false
             property bool keepBarShadow: false
             property bool keepBarBorder: false
+            property bool mixerMicToggle: true
+            property bool mixerOutputToggle: true
         }
     }
 
@@ -592,6 +596,47 @@ Singleton {
             property bool alwaysShowNumbers: false
             property bool showNumbers: false
             property bool dynamic: false
+            property bool perMonitor: false
+        }
+    }
+
+    // ============================================
+    // AUDIO MODULE (F3)
+    // ============================================
+    FileView {
+        id: audioLoader
+        path: root.configDir + "/audio.json"
+        atomicWrites: true
+        watchChanges: true
+        onLoaded: {
+            if (!root.audioReady) {
+                validateModule("audio", audioLoader, AudioDefaults.data, () => {
+                    root.audioReady = true;
+                });
+            }
+        }
+        onLoadFailed: {
+            if (error.toString().includes("FileNotFound") && !root.audioReady) {
+                handleMissingConfig("audio", audioLoader, AudioDefaults.data, () => {
+                    root.audioReady = true;
+                });
+            }
+        }
+        onFileChanged: {
+            root.pauseAutoSave = true;
+            reload();
+            root.pauseAutoSave = false;
+        }
+        onPathChanged: reload()
+        onAdapterUpdated: {
+            if (root.audioReady && !root.pauseAutoSave) {
+                audioLoader.writeAdapter();
+            }
+        }
+
+        adapter: JsonAdapter {
+            property string speakersNode: ""
+            property string headphonesNode: ""
         }
     }
 
@@ -1181,6 +1226,8 @@ Singleton {
             property string tool: "none"
             property list<var> extraModels: []
             property string defaultModel: "gemini-2.0-flash"
+            property string customEndpoint: ""
+            property string customCurlTemplate: ""
             property int sidebarWidth: 400
             property string sidebarPosition: "right"
             property bool sidebarPinnedOnStartup: false
@@ -3434,6 +3481,9 @@ Singleton {
     // Workspace configuration
     property QtObject workspaces: workspacesLoader.adapter
 
+    // Audio configuration (F3)
+    property QtObject audio: audioLoader.adapter
+
     // Overview configuration
     property QtObject overview: overviewLoader.adapter
 
@@ -3513,6 +3563,9 @@ Singleton {
     // Module save functions
     function saveBar() {
         barLoader.writeAdapter();
+    }
+    function saveAudio() {
+        audioLoader.writeAdapter();
     }
     function saveWorkspaces() {
         workspacesLoader.writeAdapter();

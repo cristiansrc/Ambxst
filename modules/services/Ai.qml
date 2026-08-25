@@ -215,8 +215,18 @@ Singleton {
     // ============================================
 
     function setModel(modelName) {
+        if (!modelName) return;
+        if (models.length === 0) return;
+        // null-guard: no operar si models vacío
         for (let i = 0; i < models.length; i++) {
             if (models[i].name === modelName) {
+                currentModel = models[i];
+                return;
+            }
+        }
+        // fallback: buscar por model id
+        for (let i = 0; i < models.length; i++) {
+            if (models[i].model === modelName) {
                 currentModel = models[i];
                 return;
             }
@@ -341,8 +351,41 @@ Singleton {
     }
 
     function makeRequest() {
+        // null-guard: asegurar fallback model cuando currentModel es null o models vacío
+        if (!currentModel) {
+            if (models.length > 0) {
+                currentModel = models[0];
+            } else {
+                let fallbackId = (Config && Config.ai && Config.ai.defaultModel) ? Config.ai.defaultModel : "gemini-2.0-flash";
+                let fb = aiModelFactory.createObject(root, {
+                    name: fallbackId,
+                    icon: Qt.resolvedUrl("../../../assets/aiproviders/google.svg"),
+                    description: "Fallback Model",
+                    endpoint: "https://generativelanguage.googleapis.com/v1beta",
+                    model: fallbackId,
+                    provider: "gemini",
+                    requires_key: true,
+                    key_id: "GEMINI_API_KEY"
+                });
+                if (fb) {
+                    models = [fb];
+                    currentModel = fb;
+                } else {
+                    lastError = "No model available. Configure an API key in settings.";
+                    isLoading = false;
+                    let errChat = Array.from(currentChat);
+                    errChat.push({
+                        role: "assistant",
+                        content: "Error: " + lastError
+                    });
+                    currentChat = errChat;
+                    return;
+                }
+            }
+        }
+
         let apiKey = getApiKey(currentModel);
-        if (!apiKey && currentModel.requires_key) {
+        if (!apiKey && currentModel && currentModel.requires_key) {
             lastError = "API Key missing for " + currentModel.name + ". Add it in Settings or set " + (currentModel.key_id || "the environment variable") + ".";
             isLoading = false;
 
@@ -355,13 +398,22 @@ Singleton {
             return;
         }
 
-        // Determine endpoint — Gemini streaming uses a different endpoint
+        // Determine endpoint — Gemini streaming uses a different endpoint, con soporte customEndpoint
         let endpoint;
-        let isGemini = currentModel.provider === "gemini";
+        let isGemini = currentModel && currentModel.provider === "gemini";
         if (isGemini && geminiStrategy._getStreamEndpoint) {
             endpoint = geminiStrategy._getStreamEndpoint(currentModel, apiKey);
         } else {
-            endpoint = currentStrategy.getEndpoint(currentModel, apiKey);
+            // Si es provider custom y hay customEndpoint global, usarlo
+            if (currentModel && currentModel.provider === "custom" && Config.ai.customEndpoint) {
+                endpoint = Config.ai.customEndpoint;
+            } else {
+                endpoint = currentStrategy.getEndpoint(currentModel, apiKey);
+                // fallback global customEndpoint si está configurado y endpoint vacío
+                if (Config.ai.customEndpoint && (!endpoint || endpoint === "")) {
+                    endpoint = Config.ai.customEndpoint;
+                }
+            }
         }
 
         let headers = currentStrategy.getHeaders(apiKey);
@@ -432,9 +484,11 @@ Singleton {
         let bodyPath = tmpDir + "/body.json";
         let headerArgs = payload.headers.map(h => "-H \"" + h + "\"").join(" ");
 
-        // Check for custom curl template
+        // Check for custom curl template — prioriza Config.ai.customCurlTemplate global
         let customCurl = "";
-        if (currentModel && currentModel.customCurlTemplate) {
+        if (Config.ai.customCurlTemplate) {
+            customCurl = Config.ai.customCurlTemplate;
+        } else if (currentModel && currentModel.customCurlTemplate) {
             customCurl = currentModel.customCurlTemplate;
         } else if (currentModel && KeyStore.getCustomCurl(currentModel.provider)) {
             customCurl = KeyStore.getCustomCurl(currentModel.provider);
@@ -715,7 +769,6 @@ for f in files:
     property int pendingFetches: 0
 
     function fetchAvailableModels() {
-        fetchingModels = false; // Force refresh
         if (fetchingModels)
             return;
 
@@ -780,6 +833,25 @@ for f in files:
 
         if (pendingFetches === 0) {
             fetchingModels = false;
+            // asegurar fallback model cuando models vacio y no hay fetches pendientes
+            if (models.length === 0) {
+                let fallbackId = (Config && Config.ai && Config.ai.defaultModel) ? Config.ai.defaultModel : "gemini-2.0-flash";
+                let fb = aiModelFactory.createObject(root, {
+                    name: fallbackId,
+                    icon: Qt.resolvedUrl("../../../assets/aiproviders/google.svg"),
+                    description: "Fallback Model",
+                    endpoint: "https://generativelanguage.googleapis.com/v1beta",
+                    model: fallbackId,
+                    provider: "gemini",
+                    requires_key: true,
+                    key_id: "GEMINI_API_KEY"
+                });
+                if (fb) {
+                    models = [fb];
+                    if (!currentModel) currentModel = fb;
+                    isRestored = true;
+                }
+            }
         }
     }
 
@@ -1061,6 +1133,28 @@ for f in files:
                 isRestored = true;
             } else if (!isRestored && currentModel) {
                 isRestored = true;
+            }
+
+            // fallback model cuando models vacio — evita currentModel null permanente
+            if (models.length === 0) {
+                let fallbackId = (Config && Config.ai && Config.ai.defaultModel) ? Config.ai.defaultModel : "gemini-2.0-flash";
+                let fb = aiModelFactory.createObject(root, {
+                    name: fallbackId,
+                    icon: Qt.resolvedUrl("../../../assets/aiproviders/google.svg"),
+                    description: "Fallback Model",
+                    endpoint: "https://generativelanguage.googleapis.com/v1beta",
+                    model: fallbackId,
+                    provider: "gemini",
+                    requires_key: true,
+                    key_id: "GEMINI_API_KEY"
+                });
+                if (fb) {
+                    models = [fb];
+                    if (!currentModel) {
+                        currentModel = fb;
+                    }
+                    isRestored = true;
+                }
             }
         }
     }

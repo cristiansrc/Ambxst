@@ -3,6 +3,8 @@ var data = {
     "tool": "none",
     "extraModels": [],
     "defaultModel": "gemini-2.0-flash",
+    "customEndpoint": "",
+    "customCurlTemplate": "",
     "sidebarWidth": 400,
     "sidebarPosition": "right",
     "sidebarPinnedOnStartup": false

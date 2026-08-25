@@ -506,6 +506,28 @@ Item {
                             enableShadow: root.shadowsEnabled
                         }
 
+                        // Mixer Mic Toggle (F3)
+                        MicToggleButton {
+                            id: micToggleButton
+                            bar: root
+                            visible: Config.bar && (Config.bar.mixerMicToggle ?? true)
+                            Layout.preferredWidth: visible ? 36 : 0
+                            startRadius: root.innerRadius
+                            endRadius: root.innerRadius
+                            enableShadow: root.shadowsEnabled
+                        }
+
+                        // Mixer Output Toggle (F3)
+                        OutputToggleButton {
+                            id: outputToggleButton
+                            bar: root
+                            visible: Config.bar && (Config.bar.mixerOutputToggle ?? true)
+                            Layout.preferredWidth: visible ? 36 : 0
+                            startRadius: root.innerRadius
+                            endRadius: root.innerRadius
+                            enableShadow: root.shadowsEnabled
+                        }
+
                         ToolsButton {
                             id: toolsButton
                             startRadius: root.innerRadius
@@ -578,6 +600,32 @@ Item {
 
                         ToolsButton {
                             id: toolsButtonVert
+                            startRadius: root.innerRadius
+                            endRadius: root.innerRadius
+                            vertical: true
+                            enableShadow: root.shadowsEnabled
+                        }
+
+                        // Mixer Mic Toggle (F3) vertical
+                        MicToggleButton {
+                            id: micToggleButtonVert
+                            bar: root
+                            visible: Config.bar && (Config.bar.mixerMicToggle ?? true)
+                            Layout.preferredHeight: visible ? 36 : 0
+                            Layout.preferredWidth: 36
+                            startRadius: root.innerRadius
+                            endRadius: root.innerRadius
+                            vertical: true
+                            enableShadow: root.shadowsEnabled
+                        }
+
+                        // Mixer Output Toggle (F3) vertical
+                        OutputToggleButton {
+                            id: outputToggleButtonVert
+                            bar: root
+                            visible: Config.bar && (Config.bar.mixerOutputToggle ?? true)
+                            Layout.preferredHeight: visible ? 36 : 0
+                            Layout.preferredWidth: 36
                             startRadius: root.innerRadius
                             endRadius: root.innerRadius
                             vertical: true

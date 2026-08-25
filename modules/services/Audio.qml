@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Services.Pipewire
 import qs.modules.services
 import qs.modules.theme
+import qs.config
 
 /**
  * Default Pipewire audio sink/source wrapper.
@@ -204,6 +205,71 @@ Singleton {
 
     function setDefaultSource(node) {
         Pipewire.preferredDefaultAudioSource = node;
+    }
+
+    // ── F3: device selection helpers ──
+    function findDeviceByName(name, isSink) {
+        if (!name) return null;
+        const list = isSink ? root.outputDevices : root.inputDevices;
+        for (let i = 0; i < list.length; i++) {
+            const n = list[i];
+            if (n && (n.nickname === name || n.description === name || n.name === name)) return n;
+        }
+        return null;
+    }
+
+    function setSpeakersAsDefault() {
+        const targetName = Config.audio ? Config.audio.speakersNode : "";
+        const node = root.findDeviceByName(targetName, true);
+        if (node) {
+            root.setDefaultSink(node);
+        } else {
+            console.warn("Audio.setSpeakersAsDefault: speakers node not found:", targetName);
+        }
+    }
+
+    function setHeadphonesAsDefault() {
+        const targetName = Config.audio ? Config.audio.headphonesNode : "";
+        const node = root.findDeviceByName(targetName, true);
+        if (node) {
+            root.setDefaultSink(node);
+        } else {
+            console.warn("Audio.setHeadphonesAsDefault: headphones node not found:", targetName);
+        }
+    }
+
+    function currentOutputType() {
+        const currentName = root.sink ? (root.sink.nickname || root.sink.description || root.sink.name || "") : "";
+        if (!currentName) return "unknown";
+        const sp = Config.audio ? Config.audio.speakersNode : "";
+        const hp = Config.audio ? Config.audio.headphonesNode : "";
+        if (sp && currentName === sp) return "speakers";
+        if (hp && currentName === hp) return "headphones";
+        // Fallback: check if sink name contains hints when config matches substring?
+        return "unknown";
+    }
+
+    function toggleOutput() {
+        const sp = Config.audio ? Config.audio.speakersNode : "";
+        const hp = Config.audio ? Config.audio.headphonesNode : "";
+        if (!sp && !hp) {
+            console.warn("Audio.toggleOutput: no speakers/headphones configured");
+            return;
+        }
+        if (sp && hp && sp === hp) {
+            console.warn("Audio.toggleOutput: speakers and headphones are same device");
+            return;
+        }
+        const cur = root.currentOutputType();
+        if (cur === "speakers") {
+            root.setHeadphonesAsDefault();
+        } else if (cur === "headphones") {
+            root.setSpeakersAsDefault();
+        } else {
+            // unknown -> default to speakers if available
+            if (sp) root.setSpeakersAsDefault();
+            else root.setHeadphonesAsDefault();
+        }
     }
 
     // Icon helper

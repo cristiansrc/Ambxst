@@ -20,5 +20,7 @@ var data = {
     "use12hFormat": false,
     "containBar": false,
     "keepBarShadow": false,
-    "keepBarBorder": false
+    "keepBarBorder": false,
+    "mixerMicToggle": true,
+    "mixerOutputToggle": true
 }

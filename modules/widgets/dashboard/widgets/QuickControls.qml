@@ -15,14 +15,25 @@ StyledRect {
     radius: Styling.radius(4)
     
     property int expandedPanel: -1 // -1: none, 0: wifi, 1: bluetooth
+
+    // Null-safe availability helpers (siguen patrón Battery.available)
+    readonly property bool wifiAvailable: NetworkService ? (NetworkService.wifiAvailable ?? false) : false
+    readonly property bool bluetoothAvailable: BluetoothService ? (BluetoothService.available ?? false) : false
     
     onVisibleChanged: {
         if (!visible) {
             root.expandedPanel = -1;
         } else {
             BluetoothService.initialize();
+            // Auto-close panel if hardware not available
+            if (root.expandedPanel === 0 && !root.wifiAvailable) root.expandedPanel = -1;
+            if (root.expandedPanel === 1 && !root.bluetoothAvailable) root.expandedPanel = -1;
         }
     }
+
+    // Reactivo: colapsa panel si hardware desaparece
+    onWifiAvailableChanged: if (!wifiAvailable && expandedPanel === 0) expandedPanel = -1
+    onBluetoothAvailableChanged: if (!bluetoothAvailable && expandedPanel === 1) expandedPanel = -1
     
     Behavior on implicitHeight {
         enabled: Config.animDuration > 0
@@ -52,12 +63,13 @@ StyledRect {
                 spacing: 4
 
                 ControlButton {
+                    visible: root.wifiAvailable
                     Layout.preferredWidth: 48
                     Layout.preferredHeight: 48
                     iconName: {
-                        if (!NetworkService.wifiEnabled)
+                        if (!NetworkService || !NetworkService.wifiEnabled)
                             return Icons.wifiOff;
-                        const strength = NetworkService.networkStrength;
+                        const strength = NetworkService.networkStrength ?? 0;
                         if (strength === 0)
                             return Icons.wifiHigh;
                         if (strength < 25)
@@ -68,32 +80,37 @@ StyledRect {
                             return Icons.wifiMedium;
                         return Icons.wifiHigh;
                     }
-                    isActive: NetworkService.wifiEnabled || root.expandedPanel === 0
-                    tooltipText: NetworkService.wifiEnabled ? "Wi-Fi: On" : "Wi-Fi: Off"
-                    onClicked: NetworkService.toggleWifi()
+                    isActive: (NetworkService ? NetworkService.wifiEnabled : false) || root.expandedPanel === 0
+                    tooltipText: (NetworkService && NetworkService.wifiEnabled) ? "Wi-Fi: On" : "Wi-Fi: Off"
+                    onClicked: {
+                        if (NetworkService) NetworkService.toggleWifi();
+                    }
                     onRightClicked: root.togglePanel(0)
                     onLongPressed: root.togglePanel(0)
                 }
 
                 ControlButton {
+                    visible: root.bluetoothAvailable
                     Layout.preferredWidth: 48
                     Layout.preferredHeight: 48
                     iconName: {
-                        if (!BluetoothService.enabled)
+                        if (!BluetoothService || !BluetoothService.enabled)
                             return Icons.bluetoothOff;
                         if (BluetoothService.connected)
                             return Icons.bluetoothConnected;
                         return Icons.bluetooth;
                     }
-                    isActive: BluetoothService.enabled || root.expandedPanel === 1
+                    isActive: (BluetoothService ? BluetoothService.enabled : false) || root.expandedPanel === 1
                     tooltipText: {
-                        if (!BluetoothService.enabled)
+                        if (!BluetoothService || !BluetoothService.enabled)
                             return "Bluetooth: Off";
                         if (BluetoothService.connected)
                             return "Bluetooth: Connected";
                         return "Bluetooth: On";
                     }
-                    onClicked: BluetoothService.toggle()
+                    onClicked: {
+                        if (BluetoothService) BluetoothService.toggle();
+                    }
                     onRightClicked: root.togglePanel(1)
                     onLongPressed: root.togglePanel(1)
                 }
@@ -159,7 +176,7 @@ StyledRect {
                     Loader {
                         id: wifiLoader
                         anchors.fill: parent
-                        active: root.expandedPanel === 0
+                        active: root.expandedPanel === 0 && root.wifiAvailable
                         source: "../controls/WifiPanel.qml"
                         asynchronous: true
                         
@@ -179,7 +196,7 @@ StyledRect {
                     Loader {
                         id: bluetoothLoader
                         anchors.fill: parent
-                        active: root.expandedPanel === 1
+                        active: root.expandedPanel === 1 && root.bluetoothAvailable
                         source: "../controls/BluetoothPanel.qml"
                         asynchronous: true
                         
@@ -201,6 +218,9 @@ StyledRect {
     }
     
     function togglePanel(index) {
+        // Guard: no abrir panel si hardware no disponible (null-safety)
+        if (index === 0 && !root.wifiAvailable) return;
+        if (index === 1 && !root.bluetoothAvailable) return;
         if (root.expandedPanel === index) {
             root.expandedPanel = -1;
         } else {

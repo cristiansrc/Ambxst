@@ -18,19 +18,31 @@ Item {
     readonly property var monitor: AxctlService.monitorFor(bar.screen)
     readonly property Toplevel activeWindow: ToplevelManager.activeToplevel
 
+    // perMonitor dinámico: requiere flag + al menos 2 pantallas físicas (Quickshell.screens) o 2 monitores reportados por axctl
     readonly property bool perMonitorMode: (Config.workspaces.perMonitor ?? false) && Quickshell.screens.length >= 2
+    // monitorOffset dinámico basado en Quickshell.screens.length y AxctlService.monitors — no hardcoded
     readonly property int monitorOffset: {
         if (!perMonitorMode) return 0;
-        const monitors = AxctlService.monitors.values || [];
         const mName = monitor && monitor.name ? monitor.name : "";
-        const idx = monitors.findIndex(m => m && m.name === mName);
-        return idx < 0 ? 0 : idx;
+        // Preferir AxctlService.monitors (fuente de verdad del compositor) — dinámico al número de monitores conectados
+        const axMonitors = AxctlService.monitors.values || [];
+        let idx = axMonitors.findIndex(m => m && m.name === mName);
+        if (idx >= 0) return idx;
+        // Fallback a Quickshell.screens.length — mantiene consistencia si axctl aún no reporta
+        const screens = Quickshell.screens || [];
+        const sIdx = screens.findIndex(s => s && s.name === mName);
+        if (sIdx >= 0) return sIdx;
+        return 0;
     }
+    // perMonitorCount dinámico por monitor (default 5), clamp 1..20 — cada monitor muestra exactamente perMonitorShown dots
+    // Total workspaces sistema = perMonitorShown * Quickshell.screens.length (2→10, 3→15)
     readonly property int perMonitorShown: perMonitorMode ? Math.max(1, Math.min(20, Config.workspaces.perMonitorCount ?? 5)) : (Config.workspaces.shown ?? 10)
 
+    // workspaceGroup deshabilitado en perMonitor: cada monitor tiene grupo 0 independiente, rango calculado por monitorOffset
     readonly property int workspaceGroup: perMonitorMode ? 0 : Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / (Config.workspaces.shown ?? 10))
     property var workspaceOccupied: []
     property var dynamicWorkspaceIds: []
+    // effectiveWorkspaceCount dinámico: perMonitor muestra exactamente perMonitorShown (5) dots independientes por monitor
     property int effectiveWorkspaceCount: Config.workspaces.dynamic ? dynamicWorkspaceIds.length : (perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10))
     property int widgetPadding: 4
     property real radius: Styling.radius(0)
@@ -55,11 +67,13 @@ Item {
     }
     property var occupiedRanges: []
 
+    // Rangos dinámicos basados en Quickshell.screens.length y AxctlService.monitors — ID = monitorOffset*perMonitorCount + index +1
     function updateWorkspaceOccupied() {
         if (Config.workspaces.dynamic) {
             const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
             let occupiedIds = (AxctlService.workspaces.values || []).filter(ws => ws && CompositorData.workspaceOccupationMap[ws.id]).map(ws => ws.id).sort((a, b) => a - b);
             if (perMonitorMode) {
+                // Filtra solo workspaces del rango dinámico de este monitor: [monitorOffset*perMonitorShown+1 .. (monitorOffset+1)*perMonitorShown]
                 const startId = monitorOffset * perMonitorShown + 1;
                 const endId = startId + perMonitorShown - 1;
                 occupiedIds = occupiedIds.filter(id => id >= startId && id <= endId);
@@ -91,10 +105,12 @@ Item {
                 length: dynamicWorkspaceIds.length
             }, (_, i) => CompositorData.workspaceOccupationMap[dynamicWorkspaceIds[i]]);
         } else {
+            // No-dynamic: cada monitor muestra exactamente perMonitorShown dots independientes
             const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
             workspaceOccupied = Array.from({
                 length: shownVal
             }, (_, i) => {
+                // ID dinámico per-monitor: monitorOffset*perMonitorShown + index +1
                 const wsId = perMonitorMode ? monitorOffset * perMonitorShown + i + 1 : workspaceGroup * (Config.workspaces.shown ?? 10) + i + 1;
                 return CompositorData.workspaceOccupationMap[wsId];
             });
@@ -140,6 +156,7 @@ Item {
         return Math.round(Math.max(1, Config.theme.fontSize - shrink));
     }
 
+    // ID dinámico per-monitor: monitorOffset*perMonitorCount + index +1 (ej 2 monitores×5 → 10 ws, 3×5→15)
     function getWorkspaceId(index) {
         if (perMonitorMode) {
             return monitorOffset * perMonitorShown + index + 1;
@@ -177,6 +194,14 @@ Item {
     Connections {
         target: CompositorData
         function onWindowListChanged() {
+            updateTimer.restart();
+        }
+    }
+
+    // Reactivo a cambios de monitores conectados (hotplug) — Quickshell.screens.length y AxctlService.monitors
+    Connections {
+        target: AxctlService.monitors
+        function onValuesChanged() {
             updateTimer.restart();
         }
     }

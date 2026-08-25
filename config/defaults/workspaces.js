@@ -5,5 +5,6 @@ var data = {
     "showAppIcons": true,
     "alwaysShowNumbers": false,
     "showNumbers": false,
-    "dynamic": false
+    "dynamic": false,
+    "perMonitor": false
 }

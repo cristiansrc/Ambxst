@@ -18,10 +18,20 @@ Item {
     readonly property var monitor: AxctlService.monitorFor(bar.screen)
     readonly property Toplevel activeWindow: ToplevelManager.activeToplevel
 
-    readonly property int workspaceGroup: Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / Config.workspaces.shown)
+    readonly property bool perMonitorMode: (Config.workspaces.perMonitor ?? false) && Quickshell.screens.length >= 2
+    readonly property int monitorOffset: {
+        if (!perMonitorMode) return 0;
+        const monitors = AxctlService.monitors.values || [];
+        const mName = monitor && monitor.name ? monitor.name : "";
+        const idx = monitors.findIndex(m => m && m.name === mName);
+        return idx < 0 ? 0 : idx;
+    }
+    readonly property int perMonitorShown: perMonitorMode ? Math.max(1, Config.workspaces.shown ?? 10) : (Config.workspaces.shown ?? 10)
+
+    readonly property int workspaceGroup: perMonitorMode ? 0 : Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / (Config.workspaces.shown ?? 10))
     property var workspaceOccupied: []
     property var dynamicWorkspaceIds: []
-    property int effectiveWorkspaceCount: Config.workspaces.dynamic ? dynamicWorkspaceIds.length : Config.workspaces.shown
+    property int effectiveWorkspaceCount: Config.workspaces.dynamic ? dynamicWorkspaceIds.length : (perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10))
     property int widgetPadding: 4
     property real radius: Styling.radius(0)
     property real startRadius: radius
@@ -34,21 +44,45 @@ Item {
     property real workspaceIconSizeShrinked: Math.round(workspaceButtonWidth * 0.5)
     property real workspaceIconOpacityShrinked: 1
     property real workspaceIconMarginShrinked: -4
-    property int workspaceIndexInGroup: Config.workspaces.dynamic ? dynamicWorkspaceIds.indexOf((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1) : ((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) % Config.workspaces.shown
+    property int workspaceIndexInGroup: {
+        const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
+        if (Config.workspaces.dynamic) return dynamicWorkspaceIds.indexOf(activeId);
+        if (perMonitorMode) {
+            const idx = activeId - monitorOffset * perMonitorShown - 1;
+            return Math.max(0, Math.min(perMonitorShown - 1, idx));
+        }
+        return ((activeId - 1 || 0) % (Config.workspaces.shown ?? 10));
+    }
     property var occupiedRanges: []
 
     function updateWorkspaceOccupied() {
         if (Config.workspaces.dynamic) {
-            // Get occupied workspace IDs using the precomputed occupation map, sorted and limited by 'shown'
-            const occupiedIds = AxctlService.workspaces.values.filter(ws => CompositorData.workspaceOccupationMap[ws.id]).map(ws => ws.id).sort((a, b) => a - b).slice(0, Config.workspaces.shown);
+            const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
+            let occupiedIds = (AxctlService.workspaces.values || []).filter(ws => ws && CompositorData.workspaceOccupationMap[ws.id]).map(ws => ws.id).sort((a, b) => a - b);
+            if (perMonitorMode) {
+                const startId = monitorOffset * perMonitorShown + 1;
+                const endId = startId + perMonitorShown - 1;
+                occupiedIds = occupiedIds.filter(id => id >= startId && id <= endId);
+            }
+            occupiedIds = occupiedIds.slice(0, shownVal);
 
             // Always include active workspace, even if empty
             const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
-            if (!occupiedIds.includes(activeId)) {
-                occupiedIds.push(activeId);
-                occupiedIds.sort((a, b) => a - b);
-                if (occupiedIds.length > Config.workspaces.shown) {
-                    occupiedIds.pop();
+            if (perMonitorMode) {
+                const startId = monitorOffset * perMonitorShown + 1;
+                const endId = startId + perMonitorShown - 1;
+                if (activeId >= startId && activeId <= endId && !occupiedIds.includes(activeId)) {
+                    occupiedIds.push(activeId);
+                    occupiedIds.sort((a, b) => a - b);
+                    if (occupiedIds.length > shownVal) occupiedIds.pop();
+                } else if (activeId < startId || activeId > endId) {
+                    // active is on other monitor; ensure we still show occupied for this monitor
+                }
+            } else {
+                if (!occupiedIds.includes(activeId)) {
+                    occupiedIds.push(activeId);
+                    occupiedIds.sort((a, b) => a - b);
+                    if (occupiedIds.length > shownVal) occupiedIds.pop();
                 }
             }
 
@@ -57,10 +91,11 @@ Item {
                 length: dynamicWorkspaceIds.length
             }, (_, i) => CompositorData.workspaceOccupationMap[dynamicWorkspaceIds[i]]);
         } else {
+            const shownVal = perMonitorMode ? perMonitorShown : (Config.workspaces.shown ?? 10);
             workspaceOccupied = Array.from({
-                length: Config.workspaces.shown
+                length: shownVal
             }, (_, i) => {
-                const wsId = workspaceGroup * Config.workspaces.shown + i + 1;
+                const wsId = perMonitorMode ? monitorOffset * perMonitorShown + i + 1 : workspaceGroup * (Config.workspaces.shown ?? 10) + i + 1;
                 return CompositorData.workspaceOccupationMap[wsId];
             });
         }
@@ -106,10 +141,13 @@ Item {
     }
 
     function getWorkspaceId(index) {
+        if (perMonitorMode) {
+            return monitorOffset * perMonitorShown + index + 1;
+        }
         if (Config.workspaces.dynamic) {
             return dynamicWorkspaceIds[index] || 1;
         }
-        return workspaceGroup * Config.workspaces.shown + index + 1;
+        return workspaceGroup * (Config.workspaces.shown ?? 10) + index + 1;
     }
 
     Timer {
@@ -146,6 +184,9 @@ Item {
     onWorkspaceGroupChanged: {
         updateTimer.restart();
     }
+    onPerMonitorModeChanged: updateTimer.restart()
+    onMonitorOffsetChanged: updateTimer.restart()
+    onPerMonitorShownChanged: updateTimer.restart()
 
     implicitWidth: orientation === "vertical" ? baseSize : workspaceButtonSize * effectiveWorkspaceCount + widgetPadding * 2
     implicitHeight: orientation === "vertical" ? workspaceButtonSize * effectiveWorkspaceCount + widgetPadding * 2 : baseSize
@@ -415,7 +456,15 @@ Item {
                 id: button
                 property int workspaceValue: getWorkspaceId(index)
                 Layout.fillHeight: true
-                onPressed: AxctlService.dispatch(`workspace ${workspaceValue}`)
+                onPressed: {
+                    if (perMonitorMode) {
+                        AxctlService.dispatch(`movetoworkspacesilent ${workspaceValue}`);
+                        const mName = monitor && monitor.name ? monitor.name : "";
+                        if (mName) AxctlService.dispatch(`focusmonitor ${mName}`);
+                    } else {
+                        AxctlService.dispatch(`workspace ${workspaceValue}`);
+                    }
+                }
                 width: workspaceButtonWidth
 
                 background: Item {
@@ -552,7 +601,15 @@ Item {
                 id: buttonVert
                 property int workspaceValue: getWorkspaceId(index)
                 Layout.fillWidth: true
-                onPressed: AxctlService.dispatch(`workspace ${workspaceValue}`)
+                onPressed: {
+                    if (perMonitorMode) {
+                        AxctlService.dispatch(`movetoworkspacesilent ${workspaceValue}`);
+                        const mName = monitor && monitor.name ? monitor.name : "";
+                        if (mName) AxctlService.dispatch(`focusmonitor ${mName}`);
+                    } else {
+                        AxctlService.dispatch(`workspace ${workspaceValue}`);
+                    }
+                }
                 height: workspaceButtonWidth
 
                 background: Item {

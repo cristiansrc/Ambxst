@@ -250,6 +250,19 @@ Singleton {
             toml += `layout = "${GlobalStates.compositorLayout}"\n`;
         }
 
+        // Workspaces perMonitor: filtrado visual por partición offset*perMonitorCount+1 ya aísla
+        // cada monitor (1-10 HDMI-A-1, 11-20 DP-1, 21-30 HDMI-A-2). Hyprland/axctl crea
+        // workspaces bajo demanda con `movetoworkspacesilent`/`workspace <id>` por lo que
+        // no se requieren reglas estáticas workspace→monitor. Si el compositor las exige,
+        // descomentar el bloque siguiente para emitir [[workspaces]] id/monitor.
+        // if (Config.workspaces.perMonitor && Quickshell.screens.length >= 2) {
+        //   const cnt = Math.max(1, Math.min(20, Config.workspaces.perMonitorCount ?? 10))
+        //   const mons = (AxctlService.monitors.values || []).slice().sort((a,b)=>(a.x??a.id*10000)-(b.x??b.id*10000))
+        //   const orderedMons = mons.length ? mons : Quickshell.screens.slice().sort((a,b)=>a.x-b.x)
+        //   for (let mi=0; mi<orderedMons.length; mi++) {
+        //     const mName = orderedMons[mi].name; for (let i=0;i<cnt;i++) { const wsId=mi*cnt+i+1
+        //       toml += `\n[[workspaces]]\n id = ${wsId}\n monitor = "${mName}"\n` } } }
+
         // Keybinds
         if (Config.keybindsLoader.loaded && Config.keybindsLoader.adapter) {
             const adapter = Config.keybindsLoader.adapter;

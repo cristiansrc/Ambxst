@@ -5,5 +5,5 @@
     "showNumbers": true,
     "dynamic": false,
     "perMonitor": false,
-    "perMonitorCount": 5
+    "perMonitorCount": 10
 }

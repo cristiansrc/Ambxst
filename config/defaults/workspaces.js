@@ -7,5 +7,5 @@ var data = {
     "showNumbers": false,
     "dynamic": false,
     "perMonitor": false,
-    "perMonitorCount": 5
+    "perMonitorCount": 10
 }
